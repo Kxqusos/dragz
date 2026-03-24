@@ -1,0 +1,35 @@
+:root {
+  color-scheme: light;
+  background: #f3f5f7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background:
+    radial-gradient(circle at top left, rgb(15 118 110 / 8%), transparent 26%),
+    linear-gradient(180deg, #f3f5f7 0%, #eef3f6 100%);
+  color: #223146;
+  font-family:
+    "Avenir Next",
+    "Segoe UI",
+    "Helvetica Neue",
+    sans-serif;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
