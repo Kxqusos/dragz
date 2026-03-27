@@ -1,6 +1,5 @@
-import styles from "./page.module.css";
-import { SearchExperience } from "@/components/mvp/SearchExperience";
-import { demoOffers, demoSuggestions } from "@/lib/mvp/demo";
+import Link from "next/link";
+import styles from "./landing.module.css";
 
 export default function HomePage() {
   return (
@@ -8,21 +7,21 @@ export default function HomePage() {
       <div className={styles.glow} />
 
       <section className={styles.hero}>
-        <p className={styles.eyebrow}>MVP для показа сценария</p>
-        <h1 className={styles.title}>Поиск препарата по симптому, подбор аптек и быстрый маршрут.</h1>
+        <p className={styles.eyebrow}>Безрецептурная помощь</p>
+        <h1 className={styles.title}>Быстро найти безрецептурный препарат и ближайшую аптеку.</h1>
         <p className={styles.subtitle}>
-          Пользователь разрешает геолокацию, вводит запрос вроде
-          {" "}
-          <strong>“Препарат от головной боли”</strong>
-          , получает предложения через LLM,
-          добавляет нужные позиции в список и строит самый быстрый маршрут по аптекам.
+          Один продукт для двух сценариев: поиск аптек с маршрутом и AI-консультант, который
+          помогает по симптомам и подсказывает безрецептурные препараты.
         </p>
+        <div className={styles.ctaRow}>
+          <Link href="/search" className={styles.primaryLink}>
+            Начать поиск аптек
+          </Link>
+          <Link href="/ai-consult" className={styles.secondaryLink}>
+            Получить совет от ИИ
+          </Link>
+        </div>
       </section>
-
-      <SearchExperience
-        suggestions={demoSuggestions}
-        offers={demoOffers}
-      />
     </main>
   );
 }

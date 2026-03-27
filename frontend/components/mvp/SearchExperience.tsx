@@ -1,151 +1,108 @@
 "use client";
 
-import { startTransition, useMemo, useState } from "react";
-import type { DrugSuggestion, PharmacyOffer, RouteStop } from "@/lib/mvp/types";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+import type { PharmacyOffer, RoutePreview } from "@/lib/mvp/types";
 import { hasRouteableSelection } from "@/lib/mvp/types";
-import { demoOffers, demoSuggestions, type RoutePreview } from "@/lib/mvp/demo";
+import { buildRoute, searchBackend } from "@/lib/api/backend";
+import { logUiEvent } from "@/lib/client/logger";
 import { PharmacyResults } from "@/components/mvp/PharmacyResults";
 import { RouteMap } from "@/components/mvp/RouteMap";
 import { RouteSummary } from "@/components/mvp/RouteSummary";
-import { SelectedDrugList } from "@/components/mvp/SelectedDrugList";
 import styles from "./search-experience.module.css";
 
-type SearchExperienceProps = {
-  suggestions: DrugSuggestion[];
-  offers: PharmacyOffer[];
-};
-
-function buildDemoRoute(pharmacies: PharmacyOffer[]): RoutePreview {
-  return {
-    totalDurationMinutes: 12 + pharmacies.length * 3,
-    totalDistanceKm: Number((2.4 + pharmacies.length * 1.1).toFixed(1)),
-    orderedStops: [
-      {
-        pharmacyId: "origin",
-        label: "Ваше местоположение",
-        lat: 47.222,
-        lon: 39.718,
-        order: 0
-      },
-      ...pharmacies.map((pharmacy, index) => ({
-        pharmacyId: pharmacy.pharmacyId,
-        label: pharmacy.pharmacyName,
-        lat: pharmacy.lat,
-        lon: pharmacy.lon,
-        order: index + 1
-      }))
-    ]
-  };
-}
+type OfferSort = "distance" | "price";
+const OFFER_SORT_STORAGE_KEY = "tabletki.offerSort";
 
 export function SearchExperience({
-  suggestions,
-  offers
-}: SearchExperienceProps) {
-  const [query, setQuery] = useState("");
+  initialQuery = ""
+}: {
+  initialQuery?: string;
+}) {
+  const [query, setQuery] = useState(initialQuery);
   const [locationEnabled, setLocationEnabled] = useState(false);
-  const [visibleSuggestions, setVisibleSuggestions] = useState(suggestions);
   const [visibleOffers, setVisibleOffers] = useState<PharmacyOffer[]>([]);
-  const [selectedDrugs, setSelectedDrugs] = useState<DrugSuggestion[]>([]);
   const [selectedPharmacies, setSelectedPharmacies] = useState<PharmacyOffer[]>([]);
   const [route, setRoute] = useState<RoutePreview | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [location, setLocation] = useState<{ lat: number; lon: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [offerSort, setOfferSort] = useState<OfferSort>("distance");
+  const searchCacheRef = useRef(new Map<string, Promise<Awaited<ReturnType<typeof searchBackend>>>>());
+  const initialQueryHandledRef = useRef(false);
 
-  const statusLabel = locationEnabled
-    ? "Геолокация сохранена, можно искать препарат."
-    : "Сначала разрешите геолокацию для сортировки аптек по времени.";
+  const locationStatus = locationEnabled
+    ? "Геолокация получена, можно сортировать аптеки и строить маршрут."
+    : "Определяем геолокацию через браузер для сортировки аптек и карты.";
 
   const selectedIds = useMemo(
     () => new Set(selectedPharmacies.map((item) => item.pharmacyId)),
     [selectedPharmacies]
   );
 
-  const handleSearch = async () => {
-    const normalizedQuery = query.trim().toLowerCase();
+  const sortedOffers = useMemo(() => {
+    const next = [...visibleOffers];
+
+    next.sort((left, right) => {
+      if (offerSort === "price") {
+        return left.price - right.price;
+      }
+
+      const leftDistance = calculateDistanceKm(location, left);
+      const rightDistance = calculateDistanceKm(location, right);
+      return leftDistance - rightDistance;
+    });
+
+    return next;
+  }, [location, offerSort, visibleOffers]);
+
+  const handleSearch = async (rawQuery = query) => {
+    const normalizedQuery = rawQuery.trim().toLowerCase();
 
     if (!normalizedQuery) {
-      setVisibleSuggestions(suggestions);
+      setQuery(rawQuery);
       setVisibleOffers([]);
+      setSelectedPharmacies([]);
       setRoute(null);
+      setError(null);
       return;
     }
 
-    if (normalizedQuery.includes("головной") || normalizedQuery.includes("боли")) {
-      setIsLoading(true);
-
-      try {
-        const response = await fetch("/api/search", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            query,
-            cityId: "0",
-            areaId: "0"
-          })
-        });
-        const data = (await response.json()) as {
-          suggestions?: DrugSuggestion[];
-          offers?: PharmacyOffer[];
-        };
-
-        startTransition(() => {
-          setVisibleSuggestions(data.suggestions ?? suggestions);
-          setVisibleOffers(data.offers ?? []);
-          setRoute(null);
-        });
-      } catch {
-        setVisibleSuggestions(suggestions);
-        setVisibleOffers([]);
-        setRoute(null);
-      } finally {
-        setIsLoading(false);
-      }
-      return;
-    }
-
+    setQuery(rawQuery);
     setIsLoading(true);
+    setError(null);
+    logUiEvent("search_submit", { query: rawQuery, offerSort, hasLocation: Boolean(location) });
 
     try {
-      const response = await fetch("/api/search", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          query,
-          cityId: "0",
-          areaId: "0"
-        })
-      });
-      const data = (await response.json()) as {
-        suggestions?: DrugSuggestion[];
-        offers?: PharmacyOffer[];
-      };
+      const data = await getCachedSearchResult(rawQuery);
 
       startTransition(() => {
-        setVisibleSuggestions(data.suggestions ?? []);
-        setVisibleOffers(data.offers?.length ? data.offers : offers);
+        setVisibleOffers(data.offers ?? []);
+        setSelectedPharmacies([]);
         setRoute(null);
+        setError(null);
+      });
+      logUiEvent("search_success", {
+        query: rawQuery,
+        offers: data.offers.length,
+        warnings: data.warnings
       });
     } catch {
-      setVisibleSuggestions([]);
-      setVisibleOffers(offers);
+      logUiEvent("search_failure", { query: rawQuery });
+      setVisibleOffers([]);
+      setSelectedPharmacies([]);
       setRoute(null);
+      setError("Не удалось получить данные от backend.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const addDrug = (suggestion: DrugSuggestion) => {
-    setSelectedDrugs((current) =>
-      current.some((item) => item.id === suggestion.id) ? current : [...current, suggestion]
-    );
-    setVisibleOffers(offers.filter((offer) => offer.matchedDrug === suggestion.title));
-  };
-
   const togglePharmacy = (offer: PharmacyOffer) => {
+    logUiEvent("pharmacy_toggle", {
+      pharmacyId: offer.pharmacyId,
+      pharmacyName: offer.pharmacyName,
+      wasSelected: selectedPharmacies.some((item) => item.pharmacyId === offer.pharmacyId)
+    });
     setSelectedPharmacies((current) => {
       if (current.some((item) => item.pharmacyId === offer.pharmacyId)) {
         return current.filter((item) => item.pharmacyId !== offer.pharmacyId);
@@ -156,25 +113,116 @@ export function SearchExperience({
     setRoute(null);
   };
 
+  const requestBrowserGeolocation = () => {
+    if (!navigator.geolocation) {
+      logUiEvent("geolocation_unsupported");
+      setError("Браузер не поддерживает геолокацию.");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        logUiEvent("geolocation_success", {
+          lat: position.coords.latitude,
+          lon: position.coords.longitude
+        });
+        setLocationEnabled(true);
+        setLocation({
+          lat: position.coords.latitude,
+          lon: position.coords.longitude
+        });
+        setError(null);
+      },
+      () => {
+        logUiEvent("geolocation_failure");
+        setError("Не удалось получить геолокацию.");
+      }
+    );
+  };
+
+  useEffect(() => {
+    requestBrowserGeolocation();
+    // Intentional one-shot browser geolocation prompt on initial load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const savedSort = window.localStorage.getItem(OFFER_SORT_STORAGE_KEY);
+    if (savedSort === "distance" || savedSort === "price") {
+      logUiEvent("offer_sort_restored", { offerSort: savedSort });
+      setOfferSort(savedSort);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(OFFER_SORT_STORAGE_KEY, offerSort);
+    logUiEvent("offer_sort_changed", { offerSort });
+  }, [offerSort]);
+
+  useEffect(() => {
+    if (!initialQuery.trim() || initialQueryHandledRef.current) {
+      return;
+    }
+
+    initialQueryHandledRef.current = true;
+    void handleSearch(initialQuery);
+  }, [initialQuery]);
+
+  const offerDistanceKmById = useMemo(
+    () =>
+      new Map(
+        visibleOffers.map((offer) => [offer.pharmacyId, calculateDistanceKm(location, offer)])
+      ),
+    [location, visibleOffers]
+  );
+
+  const getCachedSearchResult = (searchQuery: string) => {
+    const cacheKey = `${searchQuery.trim().toLowerCase()}::${location?.lat ?? "na"}::${location?.lon ?? "na"}`;
+    const cached = searchCacheRef.current.get(cacheKey);
+
+    if (cached) {
+      logUiEvent("search_cache_hit", { cacheKey });
+      return cached;
+    }
+    logUiEvent("search_cache_miss", { cacheKey });
+
+    const request = searchBackend({
+      query: searchQuery,
+      cityId: "0",
+      areaId: "0",
+      lat: location?.lat,
+      lon: location?.lon
+    }).catch((fetchError) => {
+      searchCacheRef.current.delete(cacheKey);
+      throw fetchError;
+    });
+
+    searchCacheRef.current.set(cacheKey, request);
+    return request;
+  };
+
   return (
     <section className={styles.shell}>
       <div className={styles.topGrid}>
-        <article className={styles.locationCard}>
-          <p className={styles.kicker}>Шаг 1</p>
-          <h2 className={styles.cardTitle}>Локация пользователя</h2>
-          <p className={styles.cardText}>{statusLabel}</p>
-          <button
-            className={styles.primaryButton}
-            type="button"
-            onClick={() => setLocationEnabled(true)}
-          >
-            Разрешить геолокацию
-          </button>
-        </article>
-
         <article className={styles.searchCard}>
-          <p className={styles.kicker}>Шаг 2</p>
+          <div className={styles.locationInline}>
+            <span className={styles.locationDot} />
+            <p className={styles.locationStatus}>{locationStatus}</p>
+            {!locationEnabled ? (
+              <button
+                className={styles.inlineButton}
+                type="button"
+                onClick={requestBrowserGeolocation}
+              >
+                Повторить запрос
+              </button>
+            ) : null}
+          </div>
+          <p className={styles.kicker}>Шаг 1</p>
           <h2 className={styles.cardTitle}>Поиск препарата</h2>
+          <p className={styles.cardIntro}>
+            Один прямой поток: вводите препарат, сразу получаете аптеки на карте и собираете маршрут.
+          </p>
           <div className={styles.searchRow}>
             <label className={styles.searchLabel} htmlFor="drug-query">
               Поиск препарата
@@ -186,64 +234,62 @@ export function SearchExperience({
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Препарат от головной боли"
+              placeholder="Например, Ибупрофен 200 мг"
             />
-            <button className={styles.primaryButton} type="button" onClick={handleSearch}>
-              Показать предложения
+            <button
+              className={styles.primaryButton}
+              type="button"
+              onClick={() => {
+                void handleSearch();
+              }}
+            >
+              Найти аптеки
             </button>
           </div>
           <p className={styles.hint}>
-            Можно искать по симптому или точному названию. Симптомный запрос уходит в LLM,
-            точное название идет в поиск аптек напрямую.
+            Точный запрос сразу уходит в поиск аптек. Выберите подходящие точки и постройте маршрут.
           </p>
           {isLoading ? <p className={styles.loading}>Идет запрос к серверному пайплайну…</p> : null}
+          {error ? <p className={styles.error}>{error}</p> : null}
         </article>
       </div>
 
       <div className={styles.contentGrid}>
         <article className={styles.panel}>
-          <p className={styles.kicker}>Шаг 3</p>
-          <h2 className={styles.cardTitle}>Предложения от LLM</h2>
-          <div className={styles.suggestionList}>
-            {visibleSuggestions.map((suggestion) => (
-              <div key={suggestion.id} className={styles.suggestionCard}>
-                <div>
-                  <strong>{suggestion.title}</strong>
-                  <p>{suggestion.rationale}</p>
-                </div>
-                <button
-                  className={styles.secondaryButton}
-                  type="button"
-                  onClick={() => addDrug(suggestion)}
-                  aria-label={`Добавить ${suggestion.title}`}
-                >
-                  Добавить {suggestion.title}
-                </button>
-              </div>
-            ))}
-          </div>
-        </article>
-
-        <article className={styles.panel}>
-          <p className={styles.kicker}>Шаг 4</p>
-          <h2 className={styles.cardTitle}>Список выбранных препаратов</h2>
-          <SelectedDrugList selectedDrugs={selectedDrugs} />
-        </article>
-      </div>
-
-      <div className={styles.contentGrid}>
-        <article className={styles.panel}>
-          <p className={styles.kicker}>Шаг 5</p>
+          <p className={styles.kicker}>Шаг 2</p>
           <h2 className={styles.cardTitle}>Подходящие аптеки</h2>
+          {visibleOffers.length > 0 ? (
+            <div className={styles.sortBar} aria-label="Сортировка аптек">
+              <span className={styles.sortLabel}>Сортировать по</span>
+              <button
+                className={offerSort === "distance" ? styles.sortButtonActive : styles.sortButton}
+                type="button"
+                onClick={() => setOfferSort("distance")}
+              >
+                По расстоянию
+              </button>
+              <button
+                className={offerSort === "price" ? styles.sortButtonActive : styles.sortButton}
+                type="button"
+                onClick={() => setOfferSort("price")}
+              >
+                По цене
+              </button>
+            </div>
+          ) : null}
           <PharmacyResults
-            offers={visibleOffers}
+            offers={sortedOffers}
+            distanceKmById={offerDistanceKmById}
             selectedIds={selectedIds}
             onToggle={togglePharmacy}
           />
+          {visibleOffers.length > 0 ? (
+            <RouteMap offers={sortedOffers} label="Карта аптек" />
+          ) : null}
         </article>
 
         <article className={styles.panel}>
-          <p className={styles.kicker}>Шаг 6</p>
+          <p className={styles.kicker}>Шаг 3</p>
           <h2 className={styles.cardTitle}>Самый быстрый маршрут</h2>
           {hasRouteableSelection(selectedPharmacies) ? (
             <>
@@ -251,24 +297,32 @@ export function SearchExperience({
                 className={styles.primaryButton}
                 type="button"
                 onClick={async () => {
+                  if (!location) {
+                    setError("Нужна геолокация для построения маршрута.");
+                    return;
+                  }
+
                   try {
-                    const response = await fetch("/api/route", {
-                      method: "POST",
-                      headers: {
-                        "Content-Type": "application/json"
-                      },
-                      body: JSON.stringify({
-                        origin: {
-                          lat: 47.222,
-                          lon: 39.718
-                        },
-                        pharmacies: selectedPharmacies
-                      })
+                    logUiEvent("route_build_start", {
+                      pharmacyCount: selectedPharmacies.length
                     });
-                    const data = (await response.json()) as RoutePreview;
+                    const data = await buildRoute({
+                      origin: location,
+                      pharmacies: selectedPharmacies
+                    });
                     setRoute(data);
+                    setError(null);
+                    logUiEvent("route_build_success", {
+                      stopCount: data.orderedStops.length,
+                      distanceKm: data.totalDistanceKm,
+                      durationMinutes: data.totalDurationMinutes
+                    });
                   } catch {
-                    setRoute(buildDemoRoute(selectedPharmacies));
+                    logUiEvent("route_build_failure", {
+                      pharmacyCount: selectedPharmacies.length
+                    });
+                    setRoute(null);
+                    setError("Не удалось построить маршрут через backend.");
                   }
                 }}
               >
@@ -277,7 +331,7 @@ export function SearchExperience({
               {route ? (
                 <>
                   <RouteSummary route={route} />
-                  <RouteMap route={route} />
+                  <RouteMap route={route} offerDetails={selectedPharmacies} label="Карта маршрута" />
                 </>
               ) : null}
             </>
@@ -290,4 +344,31 @@ export function SearchExperience({
       </div>
     </section>
   );
+}
+
+function calculateDistanceKm(
+  origin: { lat: number; lon: number } | null,
+  offer: PharmacyOffer
+): number {
+  if (!origin || !hasConfirmedCoordinates(offer)) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const latDelta = toRadians(offer.lat - origin.lat);
+  const lonDelta = toRadians(offer.lon - origin.lon);
+  const fromLat = toRadians(origin.lat);
+  const toLat = toRadians(offer.lat);
+  const haversine =
+    Math.sin(latDelta / 2) * Math.sin(latDelta / 2) +
+    Math.cos(fromLat) * Math.cos(toLat) * Math.sin(lonDelta / 2) * Math.sin(lonDelta / 2);
+
+  return 6371 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+function toRadians(value: number): number {
+  return (value * Math.PI) / 180;
+}
+
+function hasConfirmedCoordinates(offer: PharmacyOffer): boolean {
+  return Number.isFinite(offer.lat) && Number.isFinite(offer.lon) && (offer.lat !== 0 || offer.lon !== 0);
 }

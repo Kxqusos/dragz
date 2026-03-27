@@ -1,0 +1,59 @@
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  backdrop-filter: blur(14px);
+  background: rgb(243 245 247 / 82%);
+  border-bottom: 1px solid rgb(214 224 232 / 80%);
+}
+
+.shell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 16px 18px;
+}
+
+.brand {
+  color: #20324a;
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  text-decoration: none;
+}
+
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.link,
+.linkActive {
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  color: #54687a;
+  text-decoration: none;
+  font-weight: 700;
+  background: rgb(255 255 255 / 78%);
+  border: 1px solid #d7e1e9;
+}
+
+.linkActive {
+  color: #0f766e;
+  border-color: #188b7d;
+  background: #e8f7f2;
+}
+
+@media (max-width: 760px) {
+  .shell {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

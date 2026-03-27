@@ -1,0 +1,124 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tabletki-postgres
+    environment:
+      POSTGRES_DB: tabletki
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tabletki"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: tabletki-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  kafka:
+    image: confluentinc/confluent-local:7.8.7
+    container_name: tabletki-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_NODE_ID: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 15
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: tabletki-backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/tabletki
+      REDIS_URL: redis://redis:6379/0
+      GEOAPIFY_API_KEY: ${GEOAPIFY_API_KEY:-}
+      FRONTEND_ORIGIN: http://localhost:3000
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
+      OPENROUTER_HTTP_REFERER: http://localhost:3000
+      OPENROUTER_TITLE: tabletki-mvp
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: tabletki-frontend
+    environment:
+      NEXT_PUBLIC_BACKEND_URL: http://localhost:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+
+  geocode-refresh:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: tabletki-geocode-refresh
+    command: ["python", "-m", "app.jobs.refresh_geocodes_loop"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      GEOAPIFY_API_KEY: ${GEOAPIFY_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      GEOCODE_REFRESH_TIMEZONE: Europe/Moscow
+      GEOCODE_REFRESH_WINDOW_START: "23:30"
+      GEOCODE_REFRESH_WINDOW_END: "06:00"
+      GEOCODE_REFRESH_INTERVAL_HOURS: 72
+      GEOCODE_UNRESOLVED_REFRESH_INTERVAL_HOURS: 72
+      GEOCODE_REFRESH_BATCH_SIZE: 500
+      GEOCODE_REFRESH_LOOP_INTERVAL_SECONDS: 900
+      GEOCODE_PROVIDER_COOLDOWN_SECONDS: 600
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

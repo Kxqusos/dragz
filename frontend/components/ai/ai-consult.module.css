@@ -1,0 +1,219 @@
+.shell {
+  display: grid;
+  gap: 20px;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.disclaimer,
+.historyFrame,
+.composerFrame {
+  border: 1px solid #d7e1e9;
+  border-radius: 28px;
+  background: rgb(255 255 255 / 94%);
+  box-shadow: 0 20px 44px rgb(86 107 125 / 8%);
+}
+
+.disclaimer {
+  margin: 0;
+  padding: 18px 22px;
+  color: #53667a;
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.contentGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.9fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.historyFrame,
+.composerFrame {
+  padding: 22px;
+}
+
+.historyHeader,
+.composerHeader {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.sectionEyebrow,
+.messageEyebrow,
+.sidebarEyebrow {
+  color: #188b7d;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.sectionTitle {
+  margin: 0;
+  color: #20324a;
+  font-size: 1.24rem;
+  line-height: 1.15;
+}
+
+.history {
+  min-height: 440px;
+  display: grid;
+  gap: 18px;
+}
+
+.emptyState {
+  margin: 0;
+  color: #607487;
+  line-height: 1.7;
+}
+
+.userMessage,
+.assistantMessage {
+  display: grid;
+  gap: 10px;
+}
+
+.userMessage {
+  justify-items: end;
+}
+
+.userBubble,
+.assistantCard {
+  border: 1px solid #dde6ed;
+  border-radius: 24px;
+}
+
+.userBubble {
+  max-width: min(72%, 560px);
+  padding: 16px 18px;
+  background: linear-gradient(180deg, #eef7f4 0%, #e7f4f0 100%);
+}
+
+.assistantCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.9fr);
+  gap: 0;
+  overflow: hidden;
+  background: #fbfdfe;
+}
+
+.assistantBody {
+  padding: 22px 24px;
+  border-right: 1px solid #e3ebf1;
+}
+
+.assistantBody p,
+.userBubble p,
+.recommendationCard p {
+  margin: 0;
+  color: #41566b;
+  font-size: 1.02rem;
+  line-height: 1.75;
+}
+
+.assistantSidebar {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 22px 22px 20px;
+  background: linear-gradient(180deg, #f1f8f5 0%, #f8fbfc 100%);
+}
+
+.recommendations {
+  display: grid;
+  gap: 10px;
+}
+
+.recommendationCard {
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgb(255 255 255 / 84%);
+  border: 1px solid #dce6ee;
+}
+
+.recommendationCard strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #20324a;
+  font-size: 1rem;
+}
+
+.recommendationLink {
+  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #e8f7f2;
+  color: #0f766e;
+  text-decoration: none;
+  font-weight: 800;
+}
+
+.searchLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: #0f766e;
+  color: #effffc;
+  text-decoration: none;
+  font-weight: 800;
+}
+
+.form {
+  display: grid;
+  gap: 10px;
+}
+
+.label {
+  color: #506377;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.input {
+  resize: vertical;
+  min-height: 200px;
+  border: 1px solid #d6e1e8;
+  border-radius: 18px;
+  padding: 16px 18px;
+  color: #21344b;
+  font-size: 1rem;
+  line-height: 1.6;
+  background: white;
+}
+
+.submit {
+  justify-self: start;
+  min-height: 48px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #188b7d 0%, #0f766e 100%);
+  color: #effffc;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+@media (max-width: 980px) {
+  .contentGrid,
+  .assistantCard {
+    grid-template-columns: 1fr;
+  }
+
+  .assistantBody {
+    border-right: 0;
+    border-bottom: 1px solid #e3ebf1;
+  }
+
+  .userBubble {
+    max-width: 100%;
+  }
+}

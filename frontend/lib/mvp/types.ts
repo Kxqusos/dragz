@@ -1,11 +1,3 @@
-export type DrugSuggestion = {
-  id: string;
-  title: string;
-  kind: "drug" | "symptom";
-  confidence: number;
-  rationale: string;
-};
-
 export type PharmacyOffer = {
   pharmacyId: string;
   pharmacyName: string;
@@ -24,6 +16,13 @@ export type RouteStop = {
   lat: number;
   lon: number;
   order: number;
+};
+
+export type RoutePreview = {
+  totalDurationMinutes: number;
+  totalDistanceKm: number;
+  orderedStops: RouteStop[];
+  routeGeometry?: Array<[number, number]>;
 };
 
 export function hasRouteableSelection(offers: PharmacyOffer[]): boolean {
