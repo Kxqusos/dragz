@@ -62,11 +62,11 @@ services:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/tabletki
       REDIS_URL: redis://redis:6379/0
       GEOAPIFY_API_KEY: ${GEOAPIFY_API_KEY:-}
-      FRONTEND_ORIGIN: http://localhost:3000
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
-      OPENROUTER_HTTP_REFERER: http://localhost:3000
+      OPENROUTER_HTTP_REFERER: ${OPENROUTER_HTTP_REFERER:-http://localhost:3000}
       OPENROUTER_TITLE: tabletki-mvp
     depends_on:
       postgres:
@@ -87,9 +87,9 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL:-}
     container_name: tabletki-frontend
-    environment:
-      NEXT_PUBLIC_BACKEND_URL: http://localhost:8000
     depends_on:
       backend:
         condition: service_healthy
