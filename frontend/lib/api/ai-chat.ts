@@ -1,11 +1,6 @@
 import type { AIChatMessage, AIChatResponse } from "@/lib/ai-chat/types";
 import { logUiEvent } from "@/lib/client/logger";
-
-const DEFAULT_BACKEND_URL = "http://127.0.0.1:8000";
-
-function getBackendUrl(): string {
-  return process.env.NEXT_PUBLIC_BACKEND_URL ?? DEFAULT_BACKEND_URL;
-}
+import { getBackendUrl } from "@/lib/api/base-url";
 
 export async function sendAIChat(messages: AIChatMessage[]): Promise<AIChatResponse> {
   logUiEvent("ai_chat_request", { messageCount: messages.length });

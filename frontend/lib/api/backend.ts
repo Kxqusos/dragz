@@ -1,5 +1,6 @@
 import type { PharmacyOffer, RoutePreview } from "@/lib/mvp/types";
 import { logUiEvent } from "@/lib/client/logger";
+import { getBackendUrl } from "@/lib/api/base-url";
 
 type SearchResponse = {
   offers: PharmacyOffer[];
@@ -36,12 +37,6 @@ type BackendRouteResponse = {
   }>;
   route_geometry?: Array<[number, number]>;
 };
-
-const DEFAULT_BACKEND_URL = "http://127.0.0.1:8000";
-
-function getBackendUrl(): string {
-  return process.env.NEXT_PUBLIC_BACKEND_URL ?? DEFAULT_BACKEND_URL;
-}
 
 export async function searchBackend(payload: {
   query: string;
