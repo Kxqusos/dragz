@@ -340,43 +340,45 @@ export function SearchExperience({
           />
           {hasRouteableSelection(cartItems) ? (
             <>
-              <button
-                className={styles.primaryButton}
-                type="button"
-                onClick={async () => {
-                  if (!location) {
-                    setError("Нужна геолокация для построения маршрута.");
-                    return;
-                  }
+              <div className={styles.routeActions}>
+                <button
+                  className={`${styles.primaryButton} ${styles.routeActionButton}`}
+                  type="button"
+                  onClick={async () => {
+                    if (!location) {
+                      setError("Нужна геолокация для построения маршрута.");
+                      return;
+                    }
 
-                  try {
-                    logUiEvent("route_build_start", {
-                      pharmacyCount: routePharmacies.length,
-                      cartItemCount: cartItems.length
-                    });
-                    const data = await buildRoute({
-                      origin: location,
-                      pharmacies: routePharmacies
-                    });
-                    setRoute(data);
-                    setError(null);
-                    logUiEvent("route_build_success", {
-                      stopCount: data.orderedStops.length,
-                      distanceKm: data.totalDistanceKm,
-                      durationMinutes: data.totalDurationMinutes
-                    });
-                  } catch {
-                    logUiEvent("route_build_failure", {
-                      pharmacyCount: routePharmacies.length,
-                      cartItemCount: cartItems.length
-                    });
-                    setRoute(null);
-                    setError("Не удалось построить маршрут через backend.");
-                  }
-                }}
-              >
-                Построить маршрут по корзине
-              </button>
+                    try {
+                      logUiEvent("route_build_start", {
+                        pharmacyCount: routePharmacies.length,
+                        cartItemCount: cartItems.length
+                      });
+                      const data = await buildRoute({
+                        origin: location,
+                        pharmacies: routePharmacies
+                      });
+                      setRoute(data);
+                      setError(null);
+                      logUiEvent("route_build_success", {
+                        stopCount: data.orderedStops.length,
+                        distanceKm: data.totalDistanceKm,
+                        durationMinutes: data.totalDurationMinutes
+                      });
+                    } catch {
+                      logUiEvent("route_build_failure", {
+                        pharmacyCount: routePharmacies.length,
+                        cartItemCount: cartItems.length
+                      });
+                      setRoute(null);
+                      setError("Не удалось построить маршрут через backend.");
+                    }
+                  }}
+                >
+                  Построить маршрут по корзине
+                </button>
+              </div>
               {route ? (
                 <>
                   <RouteSummary route={route} />

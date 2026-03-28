@@ -3,13 +3,19 @@ import re
 import logging
 from redis.asyncio import Redis
 from datetime import UTC, datetime
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.db.dependencies import get_session_factory
 from app.services.cache import (
     get_cached_geocode_record,
     is_provider_in_cooldown,
     set_cached_geocode_record,
     set_provider_cooldown,
+)
+from app.services.pharmacy_coordinates import (
+    get_pharmacy_coordinate_record,
+    upsert_pharmacy_coordinate_record,
 )
 
 ROSTOV_REGION_BOUNDS = {
@@ -81,29 +87,80 @@ async def geocode_address(
     *,
     near: tuple[float, float] | None = None,
     cache: Redis | None = None,
+    db_session: AsyncSession | None = None,
     client: httpx.AsyncClient | None = None,
     force_refresh: bool = False,
 ) -> tuple[float, float] | None:
     owns_client = client is None
+    owns_db_session = db_session is None
+    active_db_session = db_session or get_session_factory()()
     active_client = client or httpx.AsyncClient(
         timeout=6.0,
         headers={"User-Agent": f"{settings.app_name}/1.0"},
     )
-    query_variants = build_geocode_queries(address)
-    logger.info("geocode_start address=%r queries=%s near=%s", address, query_variants, near)
-
-    cached_record = None if force_refresh else await get_cached_geocode_record(cache, address)
-    if cached_record is not None:
-        logger.info("geocode_cache_hit address=%r status=%s", address, cached_record.get("status"))
-        if cached_record.get("status") == "resolved":
-            lat = cached_record.get("lat")
-            lon = cached_record.get("lon")
-            if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
-                return (float(lat), float(lon))
-        return None
-    logger.info("geocode_cache_miss address=%r", address)
-
     try:
+        query_variants = build_geocode_queries(address)
+        logger.info("geocode_start address=%r queries=%s near=%s", address, query_variants, near)
+
+        persisted_record = None
+        if not force_refresh and active_db_session is not None:
+            persisted_record = await get_pharmacy_coordinate_record(active_db_session, address)
+            if persisted_record is not None:
+                logger.info("geocode_db_hit address=%r status=%s", address, persisted_record.status)
+                if (
+                    persisted_record.status == "resolved"
+                    and persisted_record.lat is not None
+                    and persisted_record.lon is not None
+                ):
+                    await set_cached_geocode_record(
+                        cache,
+                        address,
+                        {
+                            "status": "resolved",
+                            "original_address": address,
+                            "lat": persisted_record.lat,
+                            "lon": persisted_record.lon,
+                            "provider": persisted_record.provider,
+                            "query": persisted_record.query,
+                            "updated_at": persisted_record.updated_at.isoformat(),
+                        },
+                        ttl=GEOCODE_RESOLVED_TTL_SECONDS,
+                    )
+                    return (persisted_record.lat, persisted_record.lon)
+                return None
+            logger.info("geocode_db_miss address=%r", address)
+
+        cached_record = None if force_refresh else await get_cached_geocode_record(cache, address)
+        if cached_record is not None:
+            logger.info("geocode_cache_hit address=%r status=%s", address, cached_record.get("status"))
+            if cached_record.get("status") == "resolved":
+                lat = cached_record.get("lat")
+                lon = cached_record.get("lon")
+                if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
+                    if active_db_session is not None:
+                        await upsert_pharmacy_coordinate_record(
+                            active_db_session,
+                            address=address,
+                            status="resolved",
+                            lat=float(lat),
+                            lon=float(lon),
+                            provider=str(cached_record.get("provider") or ""),
+                            query=str(cached_record.get("query") or ""),
+                            updated_at=_parse_updated_at(cached_record.get("updated_at")),
+                        )
+                    return (float(lat), float(lon))
+            if active_db_session is not None:
+                await upsert_pharmacy_coordinate_record(
+                    active_db_session,
+                    address=address,
+                    status=str(cached_record.get("status") or "unresolved"),
+                    provider=str(cached_record.get("provider") or "") or None,
+                    query=str(cached_record.get("query") or "") or None,
+                    updated_at=_parse_updated_at(cached_record.get("updated_at")),
+                )
+            return None
+        logger.info("geocode_cache_miss address=%r", address)
+
         for query_text in query_variants:
             if settings.geoapify_api_key:
                 geoapify_params = {
@@ -130,6 +187,18 @@ async def geocode_address(
                 )
                 geoapify_match = pick_matching_geoapify_candidate(address, features)
                 if geoapify_match is not None:
+                    updated_at = datetime.now(UTC)
+                    if active_db_session is not None:
+                        await upsert_pharmacy_coordinate_record(
+                            active_db_session,
+                            address=address,
+                            status="resolved",
+                            lat=geoapify_match[0],
+                            lon=geoapify_match[1],
+                            provider="geoapify",
+                            query=query_text,
+                            updated_at=updated_at,
+                        )
                     await set_cached_geocode_record(
                         cache,
                         address,
@@ -140,7 +209,7 @@ async def geocode_address(
                             "lon": geoapify_match[1],
                             "provider": "geoapify",
                             "query": query_text,
-                            "updated_at": datetime.now(UTC).isoformat(),
+                            "updated_at": updated_at.isoformat(),
                         },
                         ttl=GEOCODE_RESOLVED_TTL_SECONDS,
                     )
@@ -149,6 +218,16 @@ async def geocode_address(
 
             if await is_provider_in_cooldown(cache, "nominatim"):
                 logger.info("geocode_provider_skipped address=%r provider=nominatim reason=cooldown", address)
+                updated_at = datetime.now(UTC)
+                if active_db_session is not None:
+                    await upsert_pharmacy_coordinate_record(
+                        active_db_session,
+                        address=address,
+                        status="rate_limited",
+                        provider="nominatim",
+                        query=query_text,
+                        updated_at=updated_at,
+                    )
                 await set_cached_geocode_record(
                     cache,
                     address,
@@ -157,7 +236,7 @@ async def geocode_address(
                         "provider": "nominatim",
                         "query": query_text,
                         "original_address": address,
-                        "updated_at": datetime.now(UTC).isoformat(),
+                        "updated_at": updated_at.isoformat(),
                     },
                     ttl=GEOCODE_RATE_LIMITED_TTL_SECONDS,
                 )
@@ -181,11 +260,26 @@ async def geocode_address(
             if response.status_code == 429:
                 logger.warning("geocode_provider_rate_limited provider=nominatim address=%r query=%r", address, query_text)
                 cooldown_seconds = settings.geocode_provider_cooldown_seconds
+                updated_at = datetime.now(UTC)
                 await set_provider_cooldown(cache, "nominatim", ttl=cooldown_seconds)
+                if active_db_session is not None:
+                    await upsert_pharmacy_coordinate_record(
+                        active_db_session,
+                        address=address,
+                        status="rate_limited",
+                        provider="nominatim",
+                        query=query_text,
+                        updated_at=updated_at,
+                    )
                 await set_cached_geocode_record(
                     cache,
                     address,
-                    {"status": "rate_limited", "provider": "nominatim", "query": query_text},
+                    {
+                        "status": "rate_limited",
+                        "provider": "nominatim",
+                        "query": query_text,
+                        "updated_at": updated_at.isoformat(),
+                    },
                     ttl=cooldown_seconds,
                 )
                 return None
@@ -199,6 +293,18 @@ async def geocode_address(
             )
             nominatim_match = pick_matching_nominatim_candidate(address, payload)
             if nominatim_match is not None:
+                updated_at = datetime.now(UTC)
+                if active_db_session is not None:
+                    await upsert_pharmacy_coordinate_record(
+                        active_db_session,
+                        address=address,
+                        status="resolved",
+                        lat=nominatim_match[0],
+                        lon=nominatim_match[1],
+                        provider="nominatim",
+                        query=query_text,
+                        updated_at=updated_at,
+                    )
                 await set_cached_geocode_record(
                     cache,
                     address,
@@ -209,12 +315,21 @@ async def geocode_address(
                         "lon": nominatim_match[1],
                         "provider": "nominatim",
                         "query": query_text,
-                        "updated_at": datetime.now(UTC).isoformat(),
+                        "updated_at": updated_at.isoformat(),
                     },
                     ttl=GEOCODE_RESOLVED_TTL_SECONDS,
                 )
                 return nominatim_match
 
+        updated_at = datetime.now(UTC)
+        if active_db_session is not None:
+            await upsert_pharmacy_coordinate_record(
+                active_db_session,
+                address=address,
+                status="unresolved",
+                query=query_variants[-1] if query_variants else None,
+                updated_at=updated_at,
+            )
         await set_cached_geocode_record(
             cache,
             address,
@@ -222,14 +337,22 @@ async def geocode_address(
                 "status": "unresolved",
                 "reason": "no-match",
                 "original_address": address,
-                "updated_at": datetime.now(UTC).isoformat(),
+                "updated_at": updated_at.isoformat(),
             },
             ttl=GEOCODE_UNRESOLVED_TTL_SECONDS,
         )
         return None
     finally:
+        if owns_db_session:
+            await active_db_session.close()
         if owns_client:
             await active_client.aclose()
+
+
+def _parse_updated_at(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    return datetime.fromisoformat(value)
 
 
 def pick_matching_nominatim_candidate(

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { PharmacyOffer, RoutePreview } from "@/lib/mvp/types";
 import styles from "./search-experience.module.css";
+import { getRouteMapMarkerLabel } from "./route-stop-presentation";
 
 type HoverCard = {
   title: string;
@@ -43,7 +44,7 @@ export function RouteMap({
     if (route) {
       return route.orderedStops.map((stop) => ({
         key: `${stop.pharmacyId}-${stop.order}`,
-        label: `${stop.order + 1}`,
+        label: getRouteMapMarkerLabel(stop),
         lat: stop.lat,
         lon: stop.lon,
         hoverCard:

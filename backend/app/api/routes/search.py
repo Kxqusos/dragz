@@ -1,9 +1,11 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import AliasChoices, BaseModel, Field
 import logging
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cache.redis import create_redis_client
 from app.core.config import Settings
+from app.db.dependencies import get_db_session
 from app.schemas import SearchResponse
 from app.services.cache import cached_resolve_offers, cached_suggest_drugs
 from app.services.geocoding import geocode_address
@@ -34,7 +36,10 @@ class SearchRequest(BaseModel):
 
 
 @router.post("")
-async def search(payload: SearchRequest) -> SearchResponse:
+async def search(
+    payload: SearchRequest,
+    db_session: AsyncSession = Depends(get_db_session),
+) -> SearchResponse:
     query = payload.query.strip()
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
@@ -73,6 +78,7 @@ async def search(payload: SearchRequest) -> SearchResponse:
             city_id=city_id,
             area_id=area_id,
             near=(payload.lat, payload.lon) if payload.lat is not None and payload.lon is not None else None,
+            db_session=db_session,
         ),
         city_id=payload.city_id,
         area_id=payload.area_id,
@@ -98,10 +104,16 @@ async def _resolve_offer_list_with_geodata(
     city_id: str,
     area_id: str,
     near: tuple[float, float] | None = None,
+    db_session: AsyncSession | None = None,
 ):
     offers = await _resolve_offer_list(query, city_id=city_id, area_id=area_id)
     return await enrich_offers_with_geodata(
         offers,
-        lambda address: geocode_address(address, settings, near=near, cache=redis_client),
+        lambda address: geocode_address(
+            address,
+            settings,
+            near=near,
+            cache=redis_client,
+        ),
         limit=30,
     )

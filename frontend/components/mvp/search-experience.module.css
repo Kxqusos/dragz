@@ -266,6 +266,16 @@
   font-weight: 600;
 }
 
+.offerActions {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.showMoreButton {
+  min-width: 200px;
+}
+
 .sortBar {
   display: flex;
   flex-wrap: wrap;
@@ -341,6 +351,15 @@
   color: #4f6478;
   font-size: 0.8rem;
   font-weight: 700;
+}
+
+.routeActions {
+  display: flex;
+  margin-top: 16px;
+}
+
+.routeActionButton {
+  width: 100%;
 }
 
 .routeSummary {

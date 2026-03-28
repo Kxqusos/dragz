@@ -1,6 +1,7 @@
 import httpx
 import logging
 from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.schemas import RoutePharmacy, RouteResponse, RouteStop
@@ -29,6 +30,7 @@ async def build_route_with_roads(
     settings: Settings,
     client: httpx.AsyncClient | None = None,
     cache: Redis | None = None,
+    db_session: AsyncSession | None = None,
 ) -> RouteResponse:
     logger.info("route_planner_start origin=(%s,%s) pharmacy_count=%d", origin[0], origin[1], len(pharmacies))
     normalized_stops: list[RouteStop] = [_build_origin_stop(origin, order=0)]
@@ -38,7 +40,12 @@ async def build_route_with_roads(
         lat = pharmacy.lat
         lon = pharmacy.lon
         if (lat == 0 or lon == 0) and pharmacy.address:
-            coords = await geocode_address(pharmacy.address, settings, cache=cache)
+            coords = await geocode_address(
+                pharmacy.address,
+                settings,
+                cache=cache,
+                db_session=db_session,
+            )
             if coords is not None:
                 lat, lon = coords
 

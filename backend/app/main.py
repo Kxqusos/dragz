@@ -9,6 +9,7 @@ from app.api.routes.route import router as route_router
 from app.api.routes.search import router as search_router
 from app.core.config import Settings
 from app.core.logging import configure_logging
+from app.db.dependencies import dispose_engine
 
 
 settings = Settings()
@@ -51,3 +52,8 @@ async def log_http_requests(request, call_next):
 @app.get("/health")
 async def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    await dispose_engine()

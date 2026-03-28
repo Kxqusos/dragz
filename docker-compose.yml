@@ -57,17 +57,22 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    env_file:
+      - ./backend/.env
+    command:
+      [
+        "/bin/sh",
+        "-c",
+        "alembic -c alembic.ini upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+      ]
     container_name: tabletki-backend
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/tabletki
       REDIS_URL: redis://redis:6379/0
-      GEOAPIFY_API_KEY: ${GEOAPIFY_API_KEY:-}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
       OPENROUTER_HTTP_REFERER: ${OPENROUTER_HTTP_REFERER:-http://localhost:3000}
-      OPENROUTER_TITLE: tabletki-mvp
+      OPENROUTER_TITLE: ${OPENROUTER_TITLE:-tabletki-mvp}
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,7 +81,7 @@ services:
       kafka:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "8888:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 15s
@@ -96,17 +101,19 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "3000:3000"
+      - "3333:3000"
 
   geocode-refresh:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    env_file:
+      - ./backend/.env
     container_name: tabletki-geocode-refresh
     command: ["python", "-m", "app.jobs.refresh_geocodes_loop"]
     environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/tabletki
       REDIS_URL: redis://redis:6379/0
-      GEOAPIFY_API_KEY: ${GEOAPIFY_API_KEY:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       GEOCODE_REFRESH_TIMEZONE: Europe/Moscow
       GEOCODE_REFRESH_WINDOW_START: "23:30"
@@ -117,7 +124,11 @@ services:
       GEOCODE_REFRESH_LOOP_INTERVAL_SECONDS: 900
       GEOCODE_PROVIDER_COOLDOWN_SECONDS: 600
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
+        condition: service_healthy
+      backend:
         condition: service_healthy
     restart: unless-stopped
 

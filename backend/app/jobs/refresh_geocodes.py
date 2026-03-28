@@ -4,11 +4,15 @@ import logging
 from zoneinfo import ZoneInfo
 
 from redis.asyncio import Redis
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cache.redis import create_redis_client
 from app.core.config import Settings
-from app.services.cache import iter_cached_geocode_records
+from app.db.dependencies import get_session_factory
+from app.db.models import PharmacyCoordinate
 from app.services.geocoding import geocode_address
+from app.services.pharmacy_coordinates import list_due_pharmacy_coordinates
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +64,7 @@ async def refresh_passive_geocodes(
     cache: Redis | None,
     settings: Settings,
     *,
+    db_session: AsyncSession | None = None,
     geocode=geocode_address,
     now: datetime | None = None,
 ) -> dict[str, int]:
@@ -78,19 +83,31 @@ async def refresh_passive_geocodes(
     selected = 0
     refreshed = 0
 
-    async for _, record in iter_cached_geocode_records(cache):
-        scanned += 1
-        if not record_is_due_for_refresh(
-            record,
-            now=current_time,
-            resolved_interval_hours=settings.geocode_refresh_interval_hours,
-            unresolved_interval_hours=settings.geocode_unresolved_refresh_interval_hours,
-            cooldown_seconds=settings.geocode_provider_cooldown_seconds,
-        ):
-            continue
+    if db_session is None:
+        logger.info("refresh_geocode_job_skip_missing_db_session")
+        return {"scanned": 0, "selected": 0, "refreshed": 0}
 
-        original_address = record.get("original_address")
-        if not isinstance(original_address, str) or not original_address:
+    all_records_result = await db_session.execute(
+        select(PharmacyCoordinate).order_by(
+            PharmacyCoordinate.updated_at.asc(),
+            PharmacyCoordinate.id.asc(),
+        )
+    )
+    all_records = all_records_result.scalars().all()
+    scanned = len(all_records)
+
+    due_records = await list_due_pharmacy_coordinates(
+        db_session,
+        now=current_time,
+        resolved_interval_hours=settings.geocode_refresh_interval_hours,
+        unresolved_interval_hours=settings.geocode_unresolved_refresh_interval_hours,
+        cooldown_seconds=settings.geocode_provider_cooldown_seconds,
+        limit=settings.geocode_refresh_batch_size,
+    )
+
+    for record in due_records:
+        original_address = record.original_address
+        if not original_address:
             continue
 
         selected += 1
@@ -98,13 +115,11 @@ async def refresh_passive_geocodes(
             original_address,
             settings,
             cache=cache,
+            db_session=db_session,
             force_refresh=True,
         )
         if coords is not None:
             refreshed += 1
-
-        if selected >= settings.geocode_refresh_batch_size:
-            break
 
     logger.info(
         "refresh_geocode_job_complete scanned=%d selected=%d refreshed=%d",
@@ -118,7 +133,8 @@ async def refresh_passive_geocodes(
 async def main() -> None:
     settings = Settings()
     cache = create_redis_client(settings.redis_url)
-    await refresh_passive_geocodes(cache, settings)
+    async with get_session_factory()() as session:
+        await refresh_passive_geocodes(cache, settings, db_session=session)
 
 
 if __name__ == "__main__":

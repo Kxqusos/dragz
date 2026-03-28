@@ -1,5 +1,9 @@
 import type { RoutePreview } from "@/lib/mvp/types";
 import styles from "./search-experience.module.css";
+import {
+  getRouteDirectionStopLabel,
+  getRouteStopIndexLabel
+} from "./route-stop-presentation";
 
 type RouteSummaryProps = {
   route: RoutePreview;
@@ -8,17 +12,7 @@ type RouteSummaryProps = {
 export function RouteSummary({
   route
 }: RouteSummaryProps) {
-  const directionStops = route.orderedStops.map((stop, index, stops) => {
-    if (stop.pharmacyId === "origin" && index === 0) {
-      return "Ваше местоположение";
-    }
-
-    if (stop.pharmacyId === "origin" && index === stops.length - 1) {
-      return "Ваше местоположение";
-    }
-
-    return stop.label;
-  });
+  const directionStops = route.orderedStops.map(getRouteDirectionStopLabel);
 
   return (
     <section className={styles.routeSummary}>
@@ -41,7 +35,7 @@ export function RouteSummary({
       <ol className={styles.routeStops}>
         {route.orderedStops.map((stop, index) => (
           <li key={`${stop.pharmacyId}-${stop.order}`}>
-            <span className={styles.stopIndex}>{stop.order + 1}.</span>
+            <span className={styles.stopIndex}>{getRouteStopIndexLabel(stop)}</span>
             <div className={styles.stopBody}>
               <strong>{stop.label}</strong>
               <span className={styles.stopMeta}>
