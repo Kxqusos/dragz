@@ -52,7 +52,7 @@ export function PharmacyResults({
               type="button"
               onClick={() => onToggle(offer)}
             >
-              {isSelected ? "Убрать из маршрута" : "Выбрать для маршрута"}
+              {isSelected ? "Убрать из корзины" : "Добавить в корзину"}
             </button>
           </article>
         );

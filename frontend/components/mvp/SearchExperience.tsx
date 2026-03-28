@@ -1,10 +1,13 @@
 "use client";
 
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
-import type { PharmacyOffer, RoutePreview } from "@/lib/mvp/types";
-import { hasRouteableSelection } from "@/lib/mvp/types";
+import type { CartItem, PharmacyOffer, RoutePreview } from "@/lib/mvp/types";
+import { getUniquePharmacyCount, hasRouteableSelection } from "@/lib/mvp/types";
 import { buildRoute, searchBackend } from "@/lib/api/backend";
 import { logUiEvent } from "@/lib/client/logger";
+import { deleteCookie, readJsonCookie, writeJsonCookie } from "@/lib/client/cookies";
+import { buildRoutePharmaciesFromCart } from "@/lib/mvp/cart";
+import { CartPanel } from "@/components/mvp/CartPanel";
 import { PharmacyResults } from "@/components/mvp/PharmacyResults";
 import { RouteMap } from "@/components/mvp/RouteMap";
 import { RouteSummary } from "@/components/mvp/RouteSummary";
@@ -12,6 +15,7 @@ import styles from "./search-experience.module.css";
 
 type OfferSort = "distance" | "price";
 const OFFER_SORT_STORAGE_KEY = "tabletki.offerSort";
+const CART_COOKIE_NAME = "tabletki_cart_v1";
 
 export function SearchExperience({
   initialQuery = ""
@@ -21,7 +25,7 @@ export function SearchExperience({
   const [query, setQuery] = useState(initialQuery);
   const [locationEnabled, setLocationEnabled] = useState(false);
   const [visibleOffers, setVisibleOffers] = useState<PharmacyOffer[]>([]);
-  const [selectedPharmacies, setSelectedPharmacies] = useState<PharmacyOffer[]>([]);
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [route, setRoute] = useState<RoutePreview | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [location, setLocation] = useState<{ lat: number; lon: number } | null>(null);
@@ -35,9 +39,12 @@ export function SearchExperience({
     : "Определяем геолокацию через браузер для сортировки аптек и карты.";
 
   const selectedIds = useMemo(
-    () => new Set(selectedPharmacies.map((item) => item.pharmacyId)),
-    [selectedPharmacies]
+    () => new Set(cartItems.map((item) => item.pharmacyId)),
+    [cartItems]
   );
+
+  const routePharmacies = useMemo(() => buildRoutePharmaciesFromCart(cartItems), [cartItems]);
+  const uniquePharmacyCount = useMemo(() => getUniquePharmacyCount(cartItems), [cartItems]);
 
   const sortedOffers = useMemo(() => {
     const next = [...visibleOffers];
@@ -61,7 +68,6 @@ export function SearchExperience({
     if (!normalizedQuery) {
       setQuery(rawQuery);
       setVisibleOffers([]);
-      setSelectedPharmacies([]);
       setRoute(null);
       setError(null);
       return;
@@ -77,7 +83,6 @@ export function SearchExperience({
 
       startTransition(() => {
         setVisibleOffers(data.offers ?? []);
-        setSelectedPharmacies([]);
         setRoute(null);
         setError(null);
       });
@@ -89,7 +94,6 @@ export function SearchExperience({
     } catch {
       logUiEvent("search_failure", { query: rawQuery });
       setVisibleOffers([]);
-      setSelectedPharmacies([]);
       setRoute(null);
       setError("Не удалось получить данные от backend.");
     } finally {
@@ -97,19 +101,35 @@ export function SearchExperience({
     }
   };
 
-  const togglePharmacy = (offer: PharmacyOffer) => {
-    logUiEvent("pharmacy_toggle", {
+  const toggleCartItem = (offer: PharmacyOffer) => {
+    logUiEvent("cart_toggle", {
       pharmacyId: offer.pharmacyId,
       pharmacyName: offer.pharmacyName,
-      wasSelected: selectedPharmacies.some((item) => item.pharmacyId === offer.pharmacyId)
+      matchedDrug: offer.matchedDrug,
+      wasSelected: cartItems.some((item) => item.pharmacyId === offer.pharmacyId)
     });
-    setSelectedPharmacies((current) => {
+    setCartItems((current) => {
       if (current.some((item) => item.pharmacyId === offer.pharmacyId)) {
         return current.filter((item) => item.pharmacyId !== offer.pharmacyId);
       }
 
       return [...current, offer];
     });
+    setRoute(null);
+  };
+
+  const removeCartItem = (itemToRemove: CartItem) => {
+    logUiEvent("cart_remove", {
+      pharmacyId: itemToRemove.pharmacyId,
+      matchedDrug: itemToRemove.matchedDrug,
+    });
+    setCartItems((current) => current.filter((item) => item.pharmacyId !== itemToRemove.pharmacyId));
+    setRoute(null);
+  };
+
+  const clearCart = () => {
+    logUiEvent("cart_clear", { itemCount: cartItems.length });
+    setCartItems([]);
     setRoute(null);
   };
 
@@ -158,6 +178,27 @@ export function SearchExperience({
     window.localStorage.setItem(OFFER_SORT_STORAGE_KEY, offerSort);
     logUiEvent("offer_sort_changed", { offerSort });
   }, [offerSort]);
+
+  useEffect(() => {
+    const persistedCart = readJsonCookie<CartItem[]>(CART_COOKIE_NAME);
+    if (!persistedCart) {
+      return;
+    }
+
+    const validCartItems = persistedCart.filter((item) => item?.pharmacyId && item?.matchedDrug);
+    if (validCartItems.length > 0) {
+      setCartItems(validCartItems);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (cartItems.length === 0) {
+      deleteCookie(CART_COOKIE_NAME);
+      return;
+    }
+
+    writeJsonCookie(CART_COOKIE_NAME, cartItems);
+  }, [cartItems]);
 
   useEffect(() => {
     if (!initialQuery.trim() || initialQueryHandledRef.current) {
@@ -281,7 +322,7 @@ export function SearchExperience({
             offers={sortedOffers}
             distanceKmById={offerDistanceKmById}
             selectedIds={selectedIds}
-            onToggle={togglePharmacy}
+            onToggle={toggleCartItem}
           />
           {visibleOffers.length > 0 ? (
             <RouteMap offers={sortedOffers} label="Карта аптек" />
@@ -290,8 +331,14 @@ export function SearchExperience({
 
         <article className={styles.panel}>
           <p className={styles.kicker}>Шаг 3</p>
-          <h2 className={styles.cardTitle}>Самый быстрый маршрут</h2>
-          {hasRouteableSelection(selectedPharmacies) ? (
+          <h2 className={styles.cardTitle}>Корзина и маршрут</h2>
+          <CartPanel
+            items={cartItems}
+            uniquePharmacyCount={uniquePharmacyCount}
+            onRemove={removeCartItem}
+            onClear={clearCart}
+          />
+          {hasRouteableSelection(cartItems) ? (
             <>
               <button
                 className={styles.primaryButton}
@@ -304,11 +351,12 @@ export function SearchExperience({
 
                   try {
                     logUiEvent("route_build_start", {
-                      pharmacyCount: selectedPharmacies.length
+                      pharmacyCount: routePharmacies.length,
+                      cartItemCount: cartItems.length
                     });
                     const data = await buildRoute({
                       origin: location,
-                      pharmacies: selectedPharmacies
+                      pharmacies: routePharmacies
                     });
                     setRoute(data);
                     setError(null);
@@ -319,25 +367,26 @@ export function SearchExperience({
                     });
                   } catch {
                     logUiEvent("route_build_failure", {
-                      pharmacyCount: selectedPharmacies.length
+                      pharmacyCount: routePharmacies.length,
+                      cartItemCount: cartItems.length
                     });
                     setRoute(null);
                     setError("Не удалось построить маршрут через backend.");
                   }
                 }}
               >
-                Построить самый быстрый маршрут
+                Построить маршрут по корзине
               </button>
               {route ? (
                 <>
                   <RouteSummary route={route} />
-                  <RouteMap route={route} offerDetails={selectedPharmacies} label="Карта маршрута" />
+                  <RouteMap route={route} offerDetails={routePharmacies} label="Карта маршрута" />
                 </>
               ) : null}
             </>
           ) : (
             <p className={styles.cardText}>
-              Добавьте минимум две аптеки, чтобы построить маршрут по всем точкам.
+              Добавьте в корзину хотя бы одну позицию, чтобы построить маршрут до нужной аптеки.
             </p>
           )}
         </article>

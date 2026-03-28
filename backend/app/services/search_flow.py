@@ -13,7 +13,7 @@ def _looks_like_symptom_query(query: str) -> bool:
 
 
 def to_pharmacy_offer(offer: Ref003Offer) -> PharmacyOffer:
-    pharmacy_id = f"{offer.pharmacy_name}:{offer.address}:{offer.price}"
+    pharmacy_id = f"{offer.pharmacy_name}:{offer.address}:{offer.price}:{offer.quantity_label}:{offer.matched_drug}"
     return PharmacyOffer(
         pharmacy_id=pharmacy_id,
         pharmacy_name=offer.pharmacy_name,

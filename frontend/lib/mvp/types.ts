@@ -10,6 +10,8 @@ export type PharmacyOffer = {
   matchedDrug: string;
 };
 
+export type CartItem = PharmacyOffer;
+
 export type RouteStop = {
   pharmacyId: string;
   label: string;
@@ -25,6 +27,14 @@ export type RoutePreview = {
   routeGeometry?: Array<[number, number]>;
 };
 
+export function getPharmacyGroupKey(offer: Pick<PharmacyOffer, "pharmacyName" | "address">): string {
+  return `${offer.pharmacyName}::${offer.address}`;
+}
+
+export function getUniquePharmacyCount(offers: PharmacyOffer[]): number {
+  return new Set(offers.map((offer) => getPharmacyGroupKey(offer))).size;
+}
+
 export function hasRouteableSelection(offers: PharmacyOffer[]): boolean {
-  return offers.length >= 2;
+  return getUniquePharmacyCount(offers) >= 1;
 }

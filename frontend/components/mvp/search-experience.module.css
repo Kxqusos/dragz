@@ -305,6 +305,44 @@
   color: #768798;
 }
 
+.cartWrap {
+  margin-top: 16px;
+}
+
+.cartHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.cartTitle {
+  color: #20324a;
+  font-size: 1rem;
+}
+
+.cartMeta {
+  margin: 6px 0 0;
+  color: #7a8c9d;
+  font-size: 0.88rem;
+}
+
+.cartItemBody {
+  display: grid;
+  gap: 4px;
+}
+
+.cartBadge {
+  display: inline-flex;
+  width: fit-content;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eef5f7;
+  color: #4f6478;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
 .routeSummary {
   margin-top: 16px;
   background:

@@ -20,3 +20,23 @@ export type AIChatResponse = {
   recommendedOTCDrugs: OTCDrugRecommendation[];
   handoffCTA: AIChatHandoff | null;
 };
+
+export type UserConversationItem = {
+  role: "user";
+  content: string;
+};
+
+export type AssistantConversationMeta = {
+  scopeStatus: AIChatResponse["scopeStatus"];
+  warnings: AIChatResponse["warnings"];
+  recommendedOTCDrugs: AIChatResponse["recommendedOTCDrugs"];
+  handoffCTA: AIChatResponse["handoffCTA"];
+};
+
+export type AssistantConversationItem = {
+  role: "assistant";
+  content: string;
+  meta: AssistantConversationMeta;
+};
+
+export type AIConversationItem = UserConversationItem | AssistantConversationItem;

@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 @router.post("")
 async def route(payload: RouteRequest):
-    if len(payload.pharmacies) < 2:
-        raise HTTPException(status_code=400, detail="at least two pharmacies are required")
+    if len(payload.pharmacies) < 1:
+        raise HTTPException(status_code=400, detail="at least one pharmacy is required")
 
     logger.info(
         "route_request origin=(%s,%s) pharmacy_count=%d",

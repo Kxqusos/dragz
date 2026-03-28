@@ -6,7 +6,7 @@ from redis.asyncio import Redis
 
 from app.schemas import PharmacyOffer, Suggestion
 
-CACHE_VERSION = "v4"
+CACHE_VERSION = "v5"
 
 
 async def cached_suggest_drugs(

@@ -1,28 +1,46 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { sendAIChat } from "@/lib/api/ai-chat";
-import type { AIChatMessage, AIChatResponse } from "@/lib/ai-chat/types";
+import { deleteCookie, readJsonCookie, writeJsonCookie } from "@/lib/client/cookies";
+import type { AIChatMessage, AIConversationItem, AIChatResponse } from "@/lib/ai-chat/types";
 import styles from "./ai-consult.module.css";
 
-type UserConversationItem = {
-  role: "user";
-  content: string;
-};
-
-type AssistantConversationItem = {
-  role: "assistant";
-  content: string;
-  meta: AIChatResponse;
-};
-
-type ConversationItem = UserConversationItem | AssistantConversationItem;
+const AI_CHAT_COOKIE_NAME = "tabletki_ai_chat_v1";
+const MAX_PERSISTED_MESSAGES = 10;
 
 export function AIConsultExperience() {
-  const [conversation, setConversation] = useState<ConversationItem[]>([]);
+  const [conversation, setConversation] = useState<AIConversationItem[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const persistedConversation = readJsonCookie<AIConversationItem[]>(AI_CHAT_COOKIE_NAME);
+    if (!persistedConversation) {
+      return;
+    }
+
+    const validConversation = persistedConversation.filter(
+      (item) =>
+        item &&
+        (item.role === "user" || item.role === "assistant") &&
+        typeof item.content === "string"
+    );
+
+    if (validConversation.length > 0) {
+      setConversation(validConversation.slice(-MAX_PERSISTED_MESSAGES));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (conversation.length === 0) {
+      deleteCookie(AI_CHAT_COOKIE_NAME);
+      return;
+    }
+
+    writeJsonCookie(AI_CHAT_COOKIE_NAME, conversation.slice(-MAX_PERSISTED_MESSAGES));
+  }, [conversation]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -31,25 +49,35 @@ export function AIConsultExperience() {
       return;
     }
 
-    const nextMessages: AIChatMessage[] = [
-      ...(conversation.map((item) => ({ role: item.role, content: item.content })) as AIChatMessage[]),
+    const nextMessagesBase: AIChatMessage[] = [
+      ...conversationToMessages(conversation),
       { role: "user", content: trimmed }
     ];
+    const nextMessages: AIChatMessage[] = nextMessagesBase.slice(-MAX_PERSISTED_MESSAGES);
+    const nextUserItem: AIConversationItem = { role: "user", content: trimmed };
 
-    setConversation((current) => [...current, { role: "user", content: trimmed }]);
+    setConversation((current) => [...current, nextUserItem].slice(-MAX_PERSISTED_MESSAGES));
     setInput("");
     setIsLoading(true);
 
     try {
       const response = await sendAIChat(nextMessages);
-      setConversation((current) => [
-        ...current,
-        {
-          role: "assistant",
-          content: response.message,
-          meta: response
+      const nextAssistantItem: AIConversationItem = {
+        role: "assistant",
+        content: response.message,
+        meta: {
+          scopeStatus: response.scopeStatus,
+          warnings: response.warnings,
+          recommendedOTCDrugs: response.recommendedOTCDrugs,
+          handoffCTA: response.handoffCTA
         }
-      ]);
+      };
+      setConversation((current) =>
+        [
+          ...current,
+          nextAssistantItem
+        ].slice(-MAX_PERSISTED_MESSAGES)
+      );
     } finally {
       setIsLoading(false);
     }
@@ -159,4 +187,11 @@ export function AIConsultExperience() {
       </div>
     </section>
   );
+}
+
+function conversationToMessages(conversation: AIConversationItem[]): AIChatMessage[] {
+  return conversation.map((item) => ({
+    role: item.role,
+    content: item.content,
+  }));
 }
