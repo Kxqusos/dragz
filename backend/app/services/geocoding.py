@@ -17,6 +17,10 @@ from app.services.pharmacy_coordinates import (
     get_pharmacy_coordinate_record,
     upsert_pharmacy_coordinate_record,
 )
+from app.services.search_engine.address import (
+    build_geocode_queries as build_search_engine_geocode_queries,
+    normalize_address_for_matching as normalize_search_engine_address,
+)
 
 ROSTOV_REGION_BOUNDS = {
     "min_lat": 45.9,
@@ -32,46 +36,16 @@ GEOCODE_RATE_LIMITED_TTL_SECONDS = 60 * 10
 
 
 def normalize_address_for_geocoding(address: str) -> str:
-    normalized = address.replace("_", " ").strip()
-    if "ростов" in normalized.lower():
-        return normalized
-    return f"Ростов-на-Дону, {normalized}"
+    queries = build_search_engine_geocode_queries(address, default_city="Ростов-на-Дону")
+    return queries[0] if queries else address.replace("_", " ").strip()
 
 
 def build_geocode_queries(address: str) -> list[str]:
-    base = normalize_address_for_geocoding(address)
-    cleaned = re.sub(r"\([^)]*\)", "", base)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    expanded = cleaned
-    expanded = re.sub(r"\bул\.\s*", "улица ", expanded, flags=re.IGNORECASE)
-    expanded = re.sub(r"\bпр\.\s*", "проспект ", expanded, flags=re.IGNORECASE)
-    expanded = re.sub(r"\bпер\.\s*", "переулок ", expanded, flags=re.IGNORECASE)
-    expanded = re.sub(r"\bбул\.\s*", "бульвар ", expanded, flags=re.IGNORECASE)
-    expanded = re.sub(r",\s*", ", ", expanded)
-    expanded = re.sub(r"(\d)\s*([А-Яа-яA-Za-z])\b", r"\1\2", expanded)
-    shortened = re.sub(r"Ростов-на-Дону,\s*", "", expanded)
-    shortened = re.sub(r"\b(улица|проспект|переулок|бульвар)\s+", "", shortened, flags=re.IGNORECASE)
-    shortened = re.sub(r",\s*", " ", shortened)
-    shortened = re.sub(r"\s+", " ", shortened).strip()
-
-    queries: list[str] = []
-    for candidate in (base, cleaned, expanded, f"Ростов-на-Дону, {shortened}" if shortened else ""):
-        if candidate and candidate not in queries:
-            queries.append(candidate)
-
-    return queries
+    return build_search_engine_geocode_queries(address, default_city="Ростов-на-Дону")
 
 
 def normalize_address_for_matching(address: str) -> str:
-    normalized = normalize_address_for_geocoding(address)
-    normalized = re.sub(r"\([^)]*\)", "", normalized)
-    normalized = normalized.lower().replace("ё", "е")
-    normalized = re.sub(r"(\d+)-(?=[a-zа-я])", r"\1 ", normalized)
-    normalized = re.sub(r"(\d+)[-\s]?(й|я|яй|ой)\b", r"\1", normalized)
-    normalized = re.sub(r"\b(ул|улица|пр|проспект|пер|переулок|бул|бульвар|пл|площадь)\.?\b", " ", normalized)
-    normalized = re.sub(r"[^a-zа-я0-9/ -]", " ", normalized)
-    normalized = re.sub(r"\s+", " ", normalized).strip()
-    return normalized
+    return normalize_search_engine_address(address, default_city="Ростов-на-Дону")
 
 
 def is_within_rostov_region(lat: float, lon: float) -> bool:

@@ -1,10 +1,13 @@
 from urllib.parse import urljoin
-import re
 import logging
 
 import httpx
 
 from app.services.ref003.parser import Ref003SearchResults, Ref003Variant, parse_search_results
+from app.services.search_engine.medicine import (
+    build_drug_search_candidates as build_engine_search_candidates,
+    normalize_query_key as normalize_engine_query_key,
+)
 
 
 BASE_URL = "http://www.ref003.ru/"
@@ -17,12 +20,6 @@ DEFAULT_HEADERS = {
     )
 }
 logger = logging.getLogger(__name__)
-
-
-def _normalize_vitamin_d_notation(value: str) -> str:
-    return re.sub(r"\b[dD](?=\d)", "Д", value)
-
-
 def build_variant_url(variant: Ref003Variant) -> str:
     return urljoin(SEARCH_BASE_URL, variant.href)
 
@@ -125,24 +122,8 @@ async def resolve_offers(
 
 
 def build_search_candidates(query: str) -> list[str]:
-    cleaned = " ".join(query.split())
-    normalized_vitamin_d = _normalize_vitamin_d_notation(cleaned)
-    normalized_units = re.sub(r"(\d)([A-Za-zА-Яа-я]+)", r"\1 \2", cleaned)
-    normalized_units = _normalize_vitamin_d_notation(normalized_units)
-    base_query = re.sub(
-        r"\s+\d+[.,]?\d*\s*(мг|mg|мл|ml|г|мкг|mcg|ед|iu)\b.*$",
-        "",
-        normalized_units,
-        flags=re.IGNORECASE,
-    ).strip()
-
-    candidates: list[str] = []
-    for candidate in (cleaned, normalized_vitamin_d, normalized_units, base_query):
-        if candidate and candidate not in candidates:
-            candidates.append(candidate)
-
-    return candidates
+    return build_engine_search_candidates(query)
 
 
 def normalize_query_key(query: str) -> str:
-    return re.sub(r"\s+", "", _normalize_vitamin_d_notation(query)).lower()
+    return normalize_engine_query_key(query)

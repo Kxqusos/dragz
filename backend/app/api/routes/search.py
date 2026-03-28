@@ -12,6 +12,7 @@ from app.services.geocoding import geocode_address
 from app.services.openrouter import suggest_drugs
 from app.services.offer_enrichment import enrich_offers_with_geodata
 from app.services.ref003.client import resolve_offers
+from app.services.search_engine.medicine import analyze_search_query
 from app.services.search_flow import run_search_flow, to_pharmacy_offer
 
 
@@ -70,9 +71,12 @@ async def search(
             logger.info("search_response mode=suggestions query=%r count=%d", query, len(suggestions))
             return SearchResponse(mode="suggestions", suggestions=suggestions, offers=[])
 
+    search_analysis = analyze_search_query(query)
+    search_query = search_analysis.canonical_query or query
+
     offers = await cached_resolve_offers(
         redis_client,
-        query,
+        search_query,
         lambda search_query, city_id="0", area_id="0": _resolve_offer_list_with_geodata(
             search_query,
             city_id=city_id,
@@ -89,6 +93,10 @@ async def search(
         area_id=payload.area_id,
         resolve_offers=lambda _query, city_id="0", area_id="0": offers,
     )
+    if search_analysis.canonical_query and search_analysis.canonical_query != query:
+        result = result.model_copy(
+            update={"warnings": [*result.warnings, f"normalized-query:{search_analysis.canonical_query}"]}
+        )
     logger.info("search_response mode=%s query=%r offers=%d warnings=%s", result.mode, query, len(result.offers), result.warnings)
     return result
 
