@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.db.base import Base
 from app.services.pharmacy_coordinates import (
+    get_pharmacy_coordinate_record,
     get_persisted_coordinates,
     list_due_pharmacy_coordinates,
     upsert_pharmacy_coordinate_record,
@@ -34,11 +35,20 @@ def test_upserted_resolved_coordinates_are_persisted_and_reused():
                 lon=39.711,
                 provider="geoapify",
                 query="Ростов-на-Дону, ул. Пушкинская, 10",
+                matching_key="ростов на дону пушкинская 10",
+                match_strategy="strict-house-and-street",
+                confidence_tier="high",
                 updated_at=datetime.now(UTC),
             )
 
+            record = await get_pharmacy_coordinate_record(session, "ул. Пушкинская, 10")
             coordinates = await get_persisted_coordinates(session, "ул. Пушкинская, 10")
+
+            assert record is not None
             assert coordinates == (47.222, 39.711)
+            assert record.matching_key == "ростов на дону пушкинская 10"
+            assert record.match_strategy == "strict-house-and-street"
+            assert record.confidence_tier == "high"
 
         await engine.dispose()
 
@@ -96,6 +106,36 @@ def test_due_records_filter_by_status_and_timestamp():
                 "пр. Буденновский, 2",
                 "пр. Стачки, 3",
             ]
+
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_persisted_coordinates_are_reused_across_noisy_address_variants():
+    async def scenario():
+        engine, session_factory = await _prepare_session()
+        async with session_factory() as session:
+            await upsert_pharmacy_coordinate_record(
+                session,
+                address="пр.Нагибина,35 ост.Школа напротив Горизонт",
+                status="resolved",
+                lat=47.241,
+                lon=39.718,
+                provider="geoapify",
+                query="Ростов-на-Дону, проспект Нагибина, 35",
+                matching_key="ростов на дону нагибина 35",
+                match_strategy="strict-house-and-street",
+                confidence_tier="high",
+                updated_at=datetime.now(UTC),
+            )
+
+            coordinates = await get_persisted_coordinates(
+                session,
+                "проспект Нагибина,35",
+            )
+
+            assert coordinates == (47.241, 39.718)
 
         await engine.dispose()
 

@@ -2,10 +2,11 @@
 
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import type { CartItem, PharmacyOffer, RoutePreview } from "@/lib/mvp/types";
-import { getUniquePharmacyCount, hasRouteableSelection } from "@/lib/mvp/types";
+import { getCartItemKey, getUniquePharmacyCount, hasRouteableSelection } from "@/lib/mvp/types";
 import { buildRoute, searchBackend } from "@/lib/api/backend";
+import { getCurrentUser, loadCart, saveCart } from "@/lib/auth/client";
+import { appendGuestSearchHistory, readGuestCart, writeGuestCart } from "@/lib/auth/guest-state";
 import { logUiEvent } from "@/lib/client/logger";
-import { deleteCookie, readJsonCookie, writeJsonCookie } from "@/lib/client/cookies";
 import { buildRoutePharmaciesFromCart } from "@/lib/mvp/cart";
 import { CartPanel } from "@/components/mvp/CartPanel";
 import { PharmacyResults } from "@/components/mvp/PharmacyResults";
@@ -15,7 +16,6 @@ import styles from "./search-experience.module.css";
 
 type OfferSort = "distance" | "price";
 const OFFER_SORT_STORAGE_KEY = "tabletki.offerSort";
-const CART_COOKIE_NAME = "tabletki_cart_v1";
 
 export function SearchExperience({
   initialQuery = ""
@@ -31,6 +31,8 @@ export function SearchExperience({
   const [location, setLocation] = useState<{ lat: number; lon: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [offerSort, setOfferSort] = useState<OfferSort>("distance");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authResolved, setAuthResolved] = useState(false);
   const searchCacheRef = useRef(new Map<string, Promise<Awaited<ReturnType<typeof searchBackend>>>>());
   const initialQueryHandledRef = useRef(false);
 
@@ -39,7 +41,7 @@ export function SearchExperience({
     : "Определяем геолокацию через браузер для сортировки аптек и карты.";
 
   const selectedIds = useMemo(
-    () => new Set(cartItems.map((item) => item.pharmacyId)),
+    () => new Set(cartItems.map((item) => getCartItemKey(item))),
     [cartItems]
   );
 
@@ -86,6 +88,9 @@ export function SearchExperience({
         setRoute(null);
         setError(null);
       });
+      if (!isAuthenticated) {
+        appendGuestSearchHistory(rawQuery);
+      }
       logUiEvent("search_success", {
         query: rawQuery,
         offers: data.offers.length,
@@ -106,11 +111,11 @@ export function SearchExperience({
       pharmacyId: offer.pharmacyId,
       pharmacyName: offer.pharmacyName,
       matchedDrug: offer.matchedDrug,
-      wasSelected: cartItems.some((item) => item.pharmacyId === offer.pharmacyId)
+      wasSelected: cartItems.some((item) => getCartItemKey(item) === getCartItemKey(offer))
     });
     setCartItems((current) => {
-      if (current.some((item) => item.pharmacyId === offer.pharmacyId)) {
-        return current.filter((item) => item.pharmacyId !== offer.pharmacyId);
+      if (current.some((item) => getCartItemKey(item) === getCartItemKey(offer))) {
+        return current.filter((item) => getCartItemKey(item) !== getCartItemKey(offer));
       }
 
       return [...current, offer];
@@ -123,7 +128,7 @@ export function SearchExperience({
       pharmacyId: itemToRemove.pharmacyId,
       matchedDrug: itemToRemove.matchedDrug,
     });
-    setCartItems((current) => current.filter((item) => item.pharmacyId !== itemToRemove.pharmacyId));
+    setCartItems((current) => current.filter((item) => getCartItemKey(item) !== getCartItemKey(itemToRemove)));
     setRoute(null);
   };
 
@@ -180,25 +185,33 @@ export function SearchExperience({
   }, [offerSort]);
 
   useEffect(() => {
-    const persistedCart = readJsonCookie<CartItem[]>(CART_COOKIE_NAME);
-    if (!persistedCart) {
-      return;
+    const persistedCart = readGuestCart().filter((item) => item?.pharmacyId && item?.matchedDrug);
+    if (persistedCart.length > 0) {
+      setCartItems(persistedCart);
     }
-
-    const validCartItems = persistedCart.filter((item) => item?.pharmacyId && item?.matchedDrug);
-    if (validCartItems.length > 0) {
-      setCartItems(validCartItems);
-    }
+    void getCurrentUser().then((user) => {
+      setIsAuthenticated(Boolean(user));
+      if (!user) {
+        setAuthResolved(true);
+        return;
+      }
+      void loadCart()
+        .then(setCartItems)
+        .catch(() => {})
+        .finally(() => setAuthResolved(true));
+    });
   }, []);
 
   useEffect(() => {
-    if (cartItems.length === 0) {
-      deleteCookie(CART_COOKIE_NAME);
+    if (!authResolved) {
       return;
     }
-
-    writeJsonCookie(CART_COOKIE_NAME, cartItems);
-  }, [cartItems]);
+    if (isAuthenticated) {
+      void saveCart(cartItems).catch(() => {});
+      return;
+    }
+    writeGuestCart(cartItems);
+  }, [authResolved, cartItems, isAuthenticated]);
 
   useEffect(() => {
     if (!initialQuery.trim() || initialQueryHandledRef.current) {

@@ -1,5 +1,6 @@
 import type { CartItem } from "@/lib/mvp/types";
 import { countItemsForPharmacy } from "@/lib/mvp/cart";
+import { getCartItemKey } from "@/lib/mvp/types";
 import styles from "./search-experience.module.css";
 
 type CartPanelProps = {
@@ -38,7 +39,7 @@ export function CartPanel({ items, uniquePharmacyCount, onRemove, onClear }: Car
           const pharmacyItemCount = countItemsForPharmacy(items, item);
 
           return (
-            <article key={item.pharmacyId} className={styles.selectedItem}>
+            <article key={getCartItemKey(item)} className={styles.selectedItem}>
               <div className={styles.cartItemBody}>
                 <strong>{item.matchedDrug}</strong>
                 <span>{item.quantityLabel}</span>

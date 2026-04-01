@@ -7,6 +7,7 @@ export async function sendAIChat(messages: AIChatMessage[]): Promise<AIChatRespo
 
   const response = await fetch(`${getBackendUrl()}/api/ai-chat`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json"
     },

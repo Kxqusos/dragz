@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import type { PharmacyOffer } from "@/lib/mvp/types";
+import { getCartItemKey } from "@/lib/mvp/types";
 import styles from "./search-experience.module.css";
 import {
   getVisibleOffers,
   shouldShowMoreOffers
 } from "./offer-list-presentation";
+import { formatDistanceKm } from "./offer-distance-format";
 
 type PharmacyResultsProps = {
   offers: PharmacyOffer[];
@@ -41,7 +43,7 @@ export function PharmacyResults({
     <>
       <div className={styles.offerList}>
         {visibleOffers.map((offer) => {
-          const isSelected = selectedIds.has(offer.pharmacyId);
+          const isSelected = selectedIds.has(getCartItemKey(offer));
           const distanceKm = distanceKmById.get(offer.pharmacyId);
 
           return (
@@ -87,8 +89,4 @@ export function PharmacyResults({
       ) : null}
     </>
   );
-}
-
-function formatDistanceKm(distanceKm: number): string {
-  return `${Math.max(0, Math.round(distanceKm))} км`;
 }

@@ -4,6 +4,10 @@ import { useEffect, useMemo, useRef } from "react";
 import type { PharmacyOffer, RoutePreview } from "@/lib/mvp/types";
 import styles from "./search-experience.module.css";
 import { getRouteMapMarkerLabel } from "./route-stop-presentation";
+import {
+  buildRouteArrowFeature,
+  buildRouteLineFeature,
+} from "./route-map-presentation";
 
 type HoverCard = {
   title: string;
@@ -153,14 +157,11 @@ export function RouteMap({
 
           map.addSource("route-line", {
             type: "geojson",
-            data: {
-              type: "Feature",
-              geometry: {
-                type: "LineString",
-                coordinates: geometry
-              },
-              properties: {}
-            }
+            data: buildRouteLineFeature(geometry)
+          });
+          map.addSource("route-arrows", {
+            type: "geojson",
+            data: buildRouteArrowFeature(geometry)
           });
           map.addLayer({
             id: "route-line",
@@ -170,6 +171,26 @@ export function RouteMap({
               "line-color": "#0f766e",
               "line-width": 5,
               "line-opacity": 0.92
+            }
+          });
+          map.addLayer({
+            id: "route-arrows",
+            type: "symbol",
+            source: "route-arrows",
+            layout: {
+              "symbol-placement": "line",
+              "symbol-spacing": 140,
+              "text-field": ["get", "arrow"],
+              "text-size": 18,
+              "text-keep-upright": false,
+              "text-rotation-alignment": "map",
+              "text-allow-overlap": true,
+              "text-ignore-placement": true
+            },
+            paint: {
+              "text-color": "#0f766e",
+              "text-halo-color": "#f8fffd",
+              "text-halo-width": 1.4
             }
           });
         }
@@ -188,6 +209,12 @@ export function RouteMap({
 
   return (
     <div className={styles.mapWrap}>
+      {route ? (
+        <div className={styles.routeMapLegend}>
+          <span className={styles.routeLegendBadge}>➜</span>
+          <span>Стрелки показывают направление движения по маршруту</span>
+        </div>
+      ) : null}
       {!validPoints.length ? (
         <p className={styles.mapFallbackNote}>
           Координаты точек пока недоступны, поэтому карта центрирована на Ростове-на-Дону.

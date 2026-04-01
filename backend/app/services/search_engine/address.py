@@ -1,4 +1,5 @@
 import re
+from dataclasses import dataclass
 
 
 _STREET_TYPE_ALIASES = {
@@ -21,6 +22,16 @@ _STREET_TYPE_ALIASES = {
     "площадь": "площадь",
 }
 
+_CITY_STOP_WORDS = {"ростов", "на", "дону"}
+
+
+@dataclass(frozen=True)
+class AddressMatchResult:
+    is_match: bool
+    matching_key: str
+    match_strategy: str
+    confidence_tier: str
+
 
 def _normalize_spacing(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip(" ,")
@@ -31,7 +42,18 @@ def _strip_landmarks(address: str) -> str:
 
 
 def _normalize_ordinals(value: str) -> str:
-    return re.sub(r"\b(\d+)[-\s]?(?:ой|ый|ая|я|й)\b", r"\1-й", value, flags=re.IGNORECASE)
+    def replace(match: re.Match[str]) -> str:
+        number = match.group(1)
+        next_word = match.group(2)
+        suffix = "-я" if next_word.lower().endswith(("ая", "яя")) else "-й"
+        return f"{number}{suffix} {next_word}"
+
+    return re.sub(
+        r"\b(\d+)[-\s]?(?:ой|ый|ая|я|й)\s+([А-Яа-яA-Za-z-]+)",
+        replace,
+        value,
+        flags=re.IGNORECASE,
+    )
 
 
 def _normalize_street_types(value: str) -> str:
@@ -44,8 +66,36 @@ def _normalize_street_types(value: str) -> str:
 def _normalize_house_spacing(value: str) -> str:
     normalized = re.sub(r",\s*", ", ", value)
     normalized = re.sub(r"\s*/\s*", "/", normalized)
-    normalized = re.sub(r"(\d)\s+([а-яa-z])\b", r"\1\2", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(
+        r"(\d)\s+([а-яa-z])\b",
+        lambda match: f"{match.group(1)}{match.group(2).lower()}",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(
+        r"(\d)([а-яa-z])\b",
+        lambda match: f"{match.group(1)}{match.group(2).lower()}",
+        normalized,
+        flags=re.IGNORECASE,
+    )
     return _normalize_spacing(normalized)
+
+
+def _strip_trailing_landmarks(value: str) -> str:
+    house_match = re.search(r"\d+[а-яa-z]?(?:/\d+[а-яa-z]?)?", value, flags=re.IGNORECASE)
+    if house_match is None:
+        return value
+
+    tail = value[house_match.end():]
+    landmark_match = re.search(
+        r"\b(?:ост\.?|остановка|рядом|напротив|возле|около|м/у|между|пл\.?|площадь)\b",
+        tail,
+        flags=re.IGNORECASE,
+    )
+    if landmark_match is None:
+        return value
+
+    return _normalize_spacing(value[:house_match.end() + landmark_match.start()])
 
 
 def _normalize_address(address: str, *, default_city: str) -> str:
@@ -55,6 +105,7 @@ def _normalize_address(address: str, *, default_city: str) -> str:
     normalized = _normalize_ordinals(normalized)
     normalized = _normalize_street_types(normalized)
     normalized = _normalize_house_spacing(normalized)
+    normalized = _strip_trailing_landmarks(normalized)
 
     if default_city and default_city.lower() not in normalized.lower():
         normalized = f"{default_city}, {normalized}"
@@ -107,3 +158,60 @@ def normalize_address_for_matching(address: str, *, default_city: str) -> str:
     normalized = re.sub(r"[^a-zа-я0-9/ -]", " ", normalized)
     normalized = re.sub(r"\s+", " ", normalized).strip()
     return normalized
+
+
+def _extract_house_token(normalized_address: str) -> str:
+    matches = re.findall(r"\b(\d+[а-яa-z]?(?:/\d+[а-яa-z]?)?)\b", normalized_address, flags=re.IGNORECASE)
+    return matches[-1] if matches else ""
+
+
+def _extract_street_tokens(normalized_address: str, house_token: str) -> set[str]:
+    candidate = normalized_address
+    if house_token:
+        candidate = re.sub(rf"\b{re.escape(house_token)}\b", " ", candidate)
+    return {
+        token for token in re.findall(r"[a-zа-я0-9]+", candidate)
+        if token not in _CITY_STOP_WORDS and not token.isdigit()
+    }
+
+
+def evaluate_address_match(
+    *,
+    expected_address: str,
+    candidate_address: str,
+    default_city: str,
+) -> AddressMatchResult:
+    expected_key = normalize_address_for_matching(expected_address, default_city=default_city)
+    candidate_key = normalize_address_for_matching(candidate_address, default_city=default_city)
+
+    expected_house = _extract_house_token(expected_key)
+    candidate_house = _extract_house_token(candidate_key)
+    expected_street_tokens = _extract_street_tokens(expected_key, expected_house)
+    candidate_street_tokens = _extract_street_tokens(candidate_key, candidate_house)
+
+    street_overlap = expected_street_tokens & candidate_street_tokens
+    has_street_match = bool(expected_street_tokens) and expected_street_tokens <= candidate_street_tokens
+    has_house_match = bool(expected_house) and expected_house == candidate_house
+
+    if has_street_match and has_house_match:
+        return AddressMatchResult(
+            is_match=True,
+            matching_key=expected_key,
+            match_strategy="strict-house-and-street",
+            confidence_tier="high",
+        )
+
+    if street_overlap:
+        return AddressMatchResult(
+            is_match=False,
+            matching_key=expected_key,
+            match_strategy="street-only",
+            confidence_tier="low",
+        )
+
+    return AddressMatchResult(
+        is_match=False,
+        matching_key=expected_key,
+        match_strategy="no-match",
+        confidence_tier="none",
+    )

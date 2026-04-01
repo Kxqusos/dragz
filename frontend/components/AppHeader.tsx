@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import type { AuthUser } from "@/lib/auth/types";
+import { getCurrentUser, logoutUser } from "@/lib/auth/client";
 import styles from "./app-header.module.css";
 
 const NAV_ITEMS = [
@@ -11,12 +14,30 @@ const NAV_ITEMS = [
 
 export function AppHeader() {
   const pathname = usePathname();
+  const router = useRouter();
+  const [user, setUser] = useState<AuthUser | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    void getCurrentUser().then((currentUser) => {
+      if (isMounted) {
+        setUser(currentUser);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [pathname]);
 
   return (
     <header className={styles.header}>
       <div className={styles.shell}>
         <Link href="/" className={styles.brand}>
-          Драгз.рф
+          <span className={styles.brandBadge}>Др</span>
+          <span className={styles.brandTextWrap}>
+            <strong className={styles.brandTitle}>Драгз.рф</strong>
+            <span className={styles.brandMeta}>Безрецептурный навигатор</span>
+          </span>
         </Link>
 
         <nav className={styles.nav} aria-label="Навигация по страницам">
@@ -34,6 +55,38 @@ export function AppHeader() {
             );
           })}
         </nav>
+
+        <div className={styles.utilityNav}>
+          {!user ? (
+            <Link href="/login" className={pathname === "/login" ? styles.linkActive : styles.link}>
+              Войти
+            </Link>
+          ) : (
+            <>
+              <span className={styles.userChip}>{user.email}</span>
+              <Link href="/account" className={pathname === "/account" ? styles.linkActive : styles.link}>
+                Личный кабинет
+              </Link>
+              {user.role === "admin" ? (
+                <Link href="/admin" className={pathname === "/admin" ? styles.linkActive : styles.link}>
+                  Админка
+                </Link>
+              ) : null}
+              <button
+                className={styles.logoutButton}
+                type="button"
+                onClick={async () => {
+                  await logoutUser();
+                  setUser(null);
+                  router.push("/");
+                  router.refresh();
+                }}
+              >
+                Выйти
+              </button>
+            </>
+          )}
+        </div>
       </div>
     </header>
   );

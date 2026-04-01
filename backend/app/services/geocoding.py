@@ -1,6 +1,7 @@
 import httpx
 import re
 import logging
+from dataclasses import dataclass
 from redis.asyncio import Redis
 from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,13 +13,16 @@ from app.services.cache import (
     is_provider_in_cooldown,
     set_cached_geocode_record,
     set_provider_cooldown,
+    try_acquire_geocode_provider_quota,
 )
 from app.services.pharmacy_coordinates import (
     get_pharmacy_coordinate_record,
     upsert_pharmacy_coordinate_record,
 )
 from app.services.search_engine.address import (
+    AddressMatchResult,
     build_geocode_queries as build_search_engine_geocode_queries,
+    evaluate_address_match,
     normalize_address_for_matching as normalize_search_engine_address,
 )
 
@@ -33,6 +37,12 @@ logger = logging.getLogger(__name__)
 GEOCODE_RESOLVED_TTL_SECONDS = 60 * 60 * 24 * 14
 GEOCODE_UNRESOLVED_TTL_SECONDS = 60 * 60 * 24
 GEOCODE_RATE_LIMITED_TTL_SECONDS = 60 * 10
+
+
+@dataclass(frozen=True)
+class GeocodeCandidateSelection:
+    resolved_coords: tuple[float, float] | None
+    match_result: AddressMatchResult
 
 
 def normalize_address_for_geocoding(address: str) -> str:
@@ -120,6 +130,9 @@ async def geocode_address(
                             lon=float(lon),
                             provider=str(cached_record.get("provider") or ""),
                             query=str(cached_record.get("query") or ""),
+                            matching_key=normalize_address_for_matching(address),
+                            match_strategy=str(cached_record.get("match_strategy") or "cached-resolved"),
+                            confidence_tier=str(cached_record.get("confidence_tier") or "high"),
                             updated_at=_parse_updated_at(cached_record.get("updated_at")),
                         )
                     return (float(lat), float(lon))
@@ -130,6 +143,9 @@ async def geocode_address(
                     status=str(cached_record.get("status") or "unresolved"),
                     provider=str(cached_record.get("provider") or "") or None,
                     query=str(cached_record.get("query") or "") or None,
+                    matching_key=normalize_address_for_matching(address),
+                    match_strategy=str(cached_record.get("match_strategy") or "cached-nonresolved"),
+                    confidence_tier=str(cached_record.get("confidence_tier") or "low"),
                     updated_at=_parse_updated_at(cached_record.get("updated_at")),
                 )
             return None
@@ -137,58 +153,84 @@ async def geocode_address(
 
         for query_text in query_variants:
             if settings.geoapify_api_key:
-                geoapify_params = {
-                    "text": query_text,
-                    "filter": "countrycode:ru",
-                    "limit": 5,
-                    "apiKey": settings.geoapify_api_key,
-                }
-                if near is not None:
-                    geoapify_params["bias"] = f"proximity:{near[1]},{near[0]}"
+                geoapify_quota_available = await try_acquire_geocode_provider_quota(
+                    cache,
+                    "geoapify",
+                    daily_limit=settings.geocode_provider_daily_request_limit,
+                    safety_buffer=settings.geocode_provider_daily_safety_buffer,
+                )
+                if not geoapify_quota_available:
+                    logger.warning("geocode_provider_quota_exhausted provider=geoapify address=%r", address)
+                else:
+                    geoapify_params = {
+                        "text": query_text,
+                        "filter": "countrycode:ru",
+                        "limit": 5,
+                        "apiKey": settings.geoapify_api_key,
+                    }
+                    if near is not None:
+                        geoapify_params["bias"] = f"proximity:{near[1]},{near[0]}"
 
-                response = await active_client.get(
-                    "https://api.geoapify.com/v1/geocode/search",
-                    params=geoapify_params,
-                )
-                response.raise_for_status()
-                payload = response.json()
-                features = payload.get("features", [])
-                logger.info(
-                    "geocode_provider_response provider=geoapify address=%r query=%r candidates=%d",
-                    address,
-                    query_text,
-                    len(features),
-                )
-                geoapify_match = pick_matching_geoapify_candidate(address, features)
-                if geoapify_match is not None:
-                    updated_at = datetime.now(UTC)
-                    if active_db_session is not None:
+                    response = await active_client.get(
+                        "https://api.geoapify.com/v1/geocode/search",
+                        params=geoapify_params,
+                    )
+                    response.raise_for_status()
+                    payload = response.json()
+                    features = payload.get("features", [])
+                    logger.info(
+                        "geocode_provider_response provider=geoapify address=%r query=%r candidates=%d",
+                        address,
+                        query_text,
+                        len(features),
+                    )
+                    geoapify_match = pick_matching_geoapify_candidate(address, features)
+                    if geoapify_match is not None and geoapify_match.match_result.is_match:
+                        updated_at = datetime.now(UTC)
+                        if active_db_session is not None:
+                            await upsert_pharmacy_coordinate_record(
+                                active_db_session,
+                                address=address,
+                                status="resolved",
+                                lat=geoapify_match.resolved_coords[0],
+                                lon=geoapify_match.resolved_coords[1],
+                                provider="geoapify",
+                                query=query_text,
+                                matching_key=geoapify_match.match_result.matching_key,
+                                match_strategy=geoapify_match.match_result.match_strategy,
+                                confidence_tier=geoapify_match.match_result.confidence_tier,
+                                updated_at=updated_at,
+                            )
+                        await set_cached_geocode_record(
+                            cache,
+                            address,
+                            {
+                                "status": "resolved",
+                                "original_address": address,
+                                "lat": geoapify_match.resolved_coords[0],
+                                "lon": geoapify_match.resolved_coords[1],
+                                "provider": "geoapify",
+                                "query": query_text,
+                                "match_strategy": geoapify_match.match_result.match_strategy,
+                                "confidence_tier": geoapify_match.match_result.confidence_tier,
+                                "updated_at": updated_at.isoformat(),
+                            },
+                            ttl=GEOCODE_RESOLVED_TTL_SECONDS,
+                        )
+                        return geoapify_match.resolved_coords
+                    if geoapify_match is not None and active_db_session is not None:
                         await upsert_pharmacy_coordinate_record(
                             active_db_session,
                             address=address,
-                            status="resolved",
-                            lat=geoapify_match[0],
-                            lon=geoapify_match[1],
+                            status="unresolved",
                             provider="geoapify",
                             query=query_text,
-                            updated_at=updated_at,
+                            matching_key=geoapify_match.match_result.matching_key,
+                            match_strategy=geoapify_match.match_result.match_strategy,
+                            confidence_tier=geoapify_match.match_result.confidence_tier,
+                            updated_at=datetime.now(UTC),
                         )
-                    await set_cached_geocode_record(
-                        cache,
-                        address,
-                        {
-                            "status": "resolved",
-                            "original_address": address,
-                            "lat": geoapify_match[0],
-                            "lon": geoapify_match[1],
-                            "provider": "geoapify",
-                            "query": query_text,
-                            "updated_at": updated_at.isoformat(),
-                        },
-                        ttl=GEOCODE_RESOLVED_TTL_SECONDS,
-                    )
-                    return geoapify_match
-                logger.info("geocode_provider_fallback address=%r query=%r from=geoapify to=nominatim", address, query_text)
+                    logger.info("geocode_provider_fallback address=%r query=%r from=geoapify to=nominatim", address, query_text)
 
             if await is_provider_in_cooldown(cache, "nominatim"):
                 logger.info("geocode_provider_skipped address=%r provider=nominatim reason=cooldown", address)
@@ -200,6 +242,9 @@ async def geocode_address(
                         status="rate_limited",
                         provider="nominatim",
                         query=query_text,
+                        matching_key=normalize_address_for_matching(address),
+                        match_strategy="provider-rate-limited",
+                        confidence_tier="low",
                         updated_at=updated_at,
                     )
                 await set_cached_geocode_record(
@@ -243,6 +288,9 @@ async def geocode_address(
                         status="rate_limited",
                         provider="nominatim",
                         query=query_text,
+                        matching_key=normalize_address_for_matching(address),
+                        match_strategy="provider-rate-limited",
+                        confidence_tier="low",
                         updated_at=updated_at,
                     )
                 await set_cached_geocode_record(
@@ -266,17 +314,20 @@ async def geocode_address(
                 len(payload),
             )
             nominatim_match = pick_matching_nominatim_candidate(address, payload)
-            if nominatim_match is not None:
+            if nominatim_match is not None and nominatim_match.match_result.is_match:
                 updated_at = datetime.now(UTC)
                 if active_db_session is not None:
                     await upsert_pharmacy_coordinate_record(
                         active_db_session,
                         address=address,
                         status="resolved",
-                        lat=nominatim_match[0],
-                        lon=nominatim_match[1],
+                        lat=nominatim_match.resolved_coords[0],
+                        lon=nominatim_match.resolved_coords[1],
                         provider="nominatim",
                         query=query_text,
+                        matching_key=nominatim_match.match_result.matching_key,
+                        match_strategy=nominatim_match.match_result.match_strategy,
+                        confidence_tier=nominatim_match.match_result.confidence_tier,
                         updated_at=updated_at,
                     )
                 await set_cached_geocode_record(
@@ -285,15 +336,96 @@ async def geocode_address(
                     {
                         "status": "resolved",
                         "original_address": address,
-                        "lat": nominatim_match[0],
-                        "lon": nominatim_match[1],
+                        "lat": nominatim_match.resolved_coords[0],
+                        "lon": nominatim_match.resolved_coords[1],
                         "provider": "nominatim",
                         "query": query_text,
+                        "match_strategy": nominatim_match.match_result.match_strategy,
+                        "confidence_tier": nominatim_match.match_result.confidence_tier,
                         "updated_at": updated_at.isoformat(),
                     },
                     ttl=GEOCODE_RESOLVED_TTL_SECONDS,
                 )
-                return nominatim_match
+                return nominatim_match.resolved_coords
+            if nominatim_match is not None and active_db_session is not None:
+                await upsert_pharmacy_coordinate_record(
+                    active_db_session,
+                    address=address,
+                    status="unresolved",
+                    provider="nominatim",
+                    query=query_text,
+                    matching_key=nominatim_match.match_result.matching_key,
+                    match_strategy=nominatim_match.match_result.match_strategy,
+                    confidence_tier=nominatim_match.match_result.confidence_tier,
+                    updated_at=datetime.now(UTC),
+                )
+
+            if settings.yandex_geocoder_api_key:
+                if not await try_acquire_geocode_provider_quota(
+                    cache,
+                    "yandex",
+                    daily_limit=settings.geocode_provider_daily_request_limit,
+                    safety_buffer=settings.geocode_provider_daily_safety_buffer,
+                ):
+                    logger.warning("geocode_provider_quota_exhausted provider=yandex address=%r", address)
+                    continue
+                yandex_response = await active_client.get(
+                    "https://geocode-maps.yandex.ru/v1/",
+                    params={
+                        "apikey": settings.yandex_geocoder_api_key,
+                        "geocode": query_text,
+                        "format": "json",
+                        "results": 5,
+                    },
+                )
+                yandex_response.raise_for_status()
+                yandex_payload = yandex_response.json()
+                yandex_match = pick_matching_yandex_candidate(address, yandex_payload)
+                if yandex_match is not None and yandex_match.match_result.is_match:
+                    updated_at = datetime.now(UTC)
+                    if active_db_session is not None:
+                        await upsert_pharmacy_coordinate_record(
+                            active_db_session,
+                            address=address,
+                            status="resolved",
+                            lat=yandex_match.resolved_coords[0],
+                            lon=yandex_match.resolved_coords[1],
+                            provider="yandex",
+                            query=query_text,
+                            matching_key=yandex_match.match_result.matching_key,
+                            match_strategy=yandex_match.match_result.match_strategy,
+                            confidence_tier=yandex_match.match_result.confidence_tier,
+                            updated_at=updated_at,
+                        )
+                    await set_cached_geocode_record(
+                        cache,
+                        address,
+                        {
+                            "status": "resolved",
+                            "original_address": address,
+                            "lat": yandex_match.resolved_coords[0],
+                            "lon": yandex_match.resolved_coords[1],
+                            "provider": "yandex",
+                            "query": query_text,
+                            "match_strategy": yandex_match.match_result.match_strategy,
+                            "confidence_tier": yandex_match.match_result.confidence_tier,
+                            "updated_at": updated_at.isoformat(),
+                        },
+                        ttl=GEOCODE_RESOLVED_TTL_SECONDS,
+                    )
+                    return yandex_match.resolved_coords
+                if yandex_match is not None and active_db_session is not None:
+                    await upsert_pharmacy_coordinate_record(
+                        active_db_session,
+                        address=address,
+                        status="unresolved",
+                        provider="yandex",
+                        query=query_text,
+                        matching_key=yandex_match.match_result.matching_key,
+                        match_strategy=yandex_match.match_result.match_strategy,
+                        confidence_tier=yandex_match.match_result.confidence_tier,
+                        updated_at=datetime.now(UTC),
+                    )
 
         updated_at = datetime.now(UTC)
         if active_db_session is not None:
@@ -302,6 +434,9 @@ async def geocode_address(
                 address=address,
                 status="unresolved",
                 query=query_variants[-1] if query_variants else None,
+                matching_key=normalize_address_for_matching(address),
+                match_strategy="no-match",
+                confidence_tier="none",
                 updated_at=updated_at,
             )
         await set_cached_geocode_record(
@@ -332,8 +467,8 @@ def _parse_updated_at(value: object) -> datetime | None:
 def pick_matching_nominatim_candidate(
     requested_address: str,
     payload: list[dict],
-) -> tuple[float, float] | None:
-    expected_street, expected_house = extract_address_parts(requested_address)
+) -> GeocodeCandidateSelection | None:
+    best_weak_match: GeocodeCandidateSelection | None = None
 
     for candidate in payload:
         try:
@@ -352,7 +487,12 @@ def pick_matching_nominatim_candidate(
             continue
 
         display_name = candidate.get("display_name", "")
-        if address_parts_match(display_name, expected_street, expected_house):
+        match_result = evaluate_address_match(
+            expected_address=requested_address,
+            candidate_address=display_name,
+            default_city="Ростов-на-Дону",
+        )
+        if match_result.is_match:
             logger.info(
                 "geocode_candidate_selected address=%r provider=nominatim candidate=%r coords=(%s,%s)",
                 requested_address,
@@ -360,13 +500,18 @@ def pick_matching_nominatim_candidate(
                 lat,
                 lon,
             )
-            return (lat, lon)
+            return GeocodeCandidateSelection(resolved_coords=(lat, lon), match_result=match_result)
+        if best_weak_match is None and match_result.confidence_tier == "low":
+            best_weak_match = GeocodeCandidateSelection(resolved_coords=None, match_result=match_result)
         logger.info(
             "geocode_candidate_rejected address=%r reason=address-mismatch candidate=%r",
             requested_address,
             display_name,
         )
 
+    if best_weak_match is not None:
+        logger.info("geocode_weak_match address=%r provider=nominatim strategy=%s", requested_address, best_weak_match.match_result.match_strategy)
+        return best_weak_match
     logger.info("geocode_no_match address=%r provider=nominatim", requested_address)
     return None
 
@@ -374,8 +519,8 @@ def pick_matching_nominatim_candidate(
 def pick_matching_geoapify_candidate(
     requested_address: str,
     features: list[dict],
-) -> tuple[float, float] | None:
-    expected_street, expected_house = extract_address_parts(requested_address)
+) -> GeocodeCandidateSelection | None:
+    best_weak_match: GeocodeCandidateSelection | None = None
 
     for feature in features:
         coordinates = feature.get("geometry", {}).get("coordinates", [])
@@ -400,7 +545,12 @@ def pick_matching_geoapify_candidate(
                 properties.get("housenumber", ""),
             ] if part
         )
-        if address_parts_match(formatted, expected_street, expected_house):
+        match_result = evaluate_address_match(
+            expected_address=requested_address,
+            candidate_address=formatted,
+            default_city="Ростов-на-Дону",
+        )
+        if match_result.is_match:
             logger.info(
                 "geocode_candidate_selected address=%r provider=geoapify candidate=%r coords=(%s,%s)",
                 requested_address,
@@ -408,38 +558,80 @@ def pick_matching_geoapify_candidate(
                 lat,
                 lon,
             )
-            return (lat, lon)
+            return GeocodeCandidateSelection(resolved_coords=(lat, lon), match_result=match_result)
+        if best_weak_match is None and match_result.confidence_tier == "low":
+            best_weak_match = GeocodeCandidateSelection(resolved_coords=None, match_result=match_result)
         logger.info(
             "geocode_candidate_rejected address=%r reason=address-mismatch candidate=%r",
             requested_address,
             formatted,
         )
 
+    if best_weak_match is not None:
+        logger.info("geocode_weak_match address=%r provider=geoapify strategy=%s", requested_address, best_weak_match.match_result.match_strategy)
+        return best_weak_match
     logger.info("geocode_no_match address=%r provider=geoapify", requested_address)
     return None
 
 
-def extract_address_parts(address: str) -> tuple[str, str]:
-    normalized = normalize_address_for_matching(address)
-    house_matches = re.findall(r"\b(\d+[a-zа-я0-9/-]*)\b", normalized)
-    house = house_matches[-1] if house_matches else ""
-    street_part = re.sub(rf"\b{re.escape(house)}\b(?!.*\b{re.escape(house)}\b)", " ", normalized).strip() if house else normalized
-    street_part = re.sub(r"\b(ростов на дону|рядом|возле|напротив|ост)\b", " ", street_part)
-    street_part = re.sub(r"\s+", " ", street_part).strip()
-    street = street_part.split(",")[0].strip() if "," in street_part else street_part
-    return street, house
+def pick_matching_yandex_candidate(
+    requested_address: str,
+    payload: dict,
+) -> GeocodeCandidateSelection | None:
+    best_weak_match: GeocodeCandidateSelection | None = None
+    features = (
+        payload.get("response", {})
+        .get("GeoObjectCollection", {})
+        .get("featureMember", [])
+    )
 
+    for feature in features:
+        geo_object = feature.get("GeoObject", {})
+        formatted = (
+            geo_object.get("metaDataProperty", {})
+            .get("GeocoderMetaData", {})
+            .get("text", "")
+        )
+        point = geo_object.get("Point", {}).get("pos", "")
+        parts = point.split()
+        if len(parts) != 2:
+            logger.info("geocode_candidate_rejected address=%r reason=invalid-coordinates candidate=%r", requested_address, feature)
+            continue
 
-def address_parts_match(candidate_address: str, expected_street: str, expected_house: str) -> bool:
-    if not candidate_address:
-        return True
+        try:
+            lon = float(parts[0])
+            lat = float(parts[1])
+        except ValueError:
+            logger.info("geocode_candidate_rejected address=%r reason=invalid-coordinates candidate=%r", requested_address, feature)
+            continue
 
-    normalized_candidate = normalize_address_for_matching(candidate_address)
+        if not is_within_rostov_region(lat, lon):
+            logger.info(
+                "geocode_candidate_rejected address=%r reason=outside-rostov candidate=%r",
+                requested_address,
+                formatted,
+            )
+            continue
 
-    if expected_street and expected_street not in normalized_candidate:
-        return False
+        match_result = evaluate_address_match(
+            expected_address=requested_address,
+            candidate_address=formatted,
+            default_city="Ростов-на-Дону",
+        )
+        if match_result.is_match:
+            logger.info(
+                "geocode_candidate_selected address=%r provider=yandex candidate=%r coords=(%s,%s)",
+                requested_address,
+                formatted,
+                lat,
+                lon,
+            )
+            return GeocodeCandidateSelection(resolved_coords=(lat, lon), match_result=match_result)
+        if best_weak_match is None and match_result.confidence_tier == "low":
+            best_weak_match = GeocodeCandidateSelection(resolved_coords=None, match_result=match_result)
 
-    if expected_house and expected_house not in normalized_candidate:
-        return False
-
-    return True
+    if best_weak_match is not None:
+        logger.info("geocode_weak_match address=%r provider=yandex strategy=%s", requested_address, best_weak_match.match_result.match_strategy)
+        return best_weak_match
+    logger.info("geocode_no_match address=%r provider=yandex", requested_address)
+    return None

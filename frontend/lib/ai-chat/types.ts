@@ -40,3 +40,10 @@ export type AssistantConversationItem = {
 };
 
 export type AIConversationItem = UserConversationItem | AssistantConversationItem;
+
+export type AIConversationPayload = {
+  id: number;
+  created_at?: string;
+  createdAt?: string;
+  messages: AIConversationItem[];
+};

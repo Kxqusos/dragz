@@ -4,9 +4,15 @@ import logging
 import time
 import uuid
 
+from app.api.routes.admin import router as admin_router
 from app.api.routes.ai_chat import router as ai_chat_router
+from app.api.routes.auth import router as auth_router
+from app.api.routes.cart import router as cart_router
+from app.api.routes.debug import router as debug_router
+from app.api.routes.history import router as history_router
 from app.api.routes.route import router as route_router
 from app.api.routes.search import router as search_router
+from app.api.routes.state import router as state_router
 from app.core.config import Settings
 from app.core.logging import configure_logging
 from app.db.dependencies import dispose_engine
@@ -23,6 +29,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(auth_router)
+app.include_router(cart_router)
+app.include_router(history_router)
+app.include_router(state_router)
+app.include_router(debug_router)
+app.include_router(admin_router)
 app.include_router(ai_chat_router)
 app.include_router(search_router)
 app.include_router(route_router)
@@ -32,6 +44,7 @@ app.include_router(route_router)
 async def log_http_requests(request, call_next):
     request_id = uuid.uuid4().hex[:12]
     started_at = time.perf_counter()
+    request.state.request_id = request_id
     logger.info("http_request_start request_id=%s method=%s path=%s query=%s", request_id, request.method, request.url.path, request.url.query)
 
     response = await call_next(request)

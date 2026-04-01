@@ -27,6 +27,10 @@ export type RoutePreview = {
   routeGeometry?: Array<[number, number]>;
 };
 
+export function getCartItemKey(offer: Pick<PharmacyOffer, "pharmacyId" | "matchedDrug">): string {
+  return `${offer.pharmacyId}::${offer.matchedDrug}`;
+}
+
 export function getPharmacyGroupKey(offer: Pick<PharmacyOffer, "pharmacyName" | "address">): string {
   return `${offer.pharmacyName}::${offer.address}`;
 }

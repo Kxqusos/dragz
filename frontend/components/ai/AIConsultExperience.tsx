@@ -2,45 +2,50 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
+import { getCurrentUser, loadAIHistory } from "@/lib/auth/client";
+import { AI_CHAT_COOKIE_NAME, readGuestAIConversation, writeGuestAIConversation } from "@/lib/auth/guest-state";
 import { sendAIChat } from "@/lib/api/ai-chat";
-import { deleteCookie, readJsonCookie, writeJsonCookie } from "@/lib/client/cookies";
 import type { AIChatMessage, AIConversationItem, AIChatResponse } from "@/lib/ai-chat/types";
 import styles from "./ai-consult.module.css";
 
-const AI_CHAT_COOKIE_NAME = "tabletki_ai_chat_v1";
 const MAX_PERSISTED_MESSAGES = 10;
 
 export function AIConsultExperience() {
   const [conversation, setConversation] = useState<AIConversationItem[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
-    const persistedConversation = readJsonCookie<AIConversationItem[]>(AI_CHAT_COOKIE_NAME);
-    if (!persistedConversation) {
-      return;
-    }
-
-    const validConversation = persistedConversation.filter(
-      (item) =>
-        item &&
-        (item.role === "user" || item.role === "assistant") &&
-        typeof item.content === "string"
-    );
-
-    if (validConversation.length > 0) {
-      setConversation(validConversation.slice(-MAX_PERSISTED_MESSAGES));
-    }
+    void getCurrentUser().then((user) => {
+      setIsAuthenticated(Boolean(user));
+      if (user) {
+        void loadAIHistory().then((history) => {
+          const latestConversation = history[0];
+          if (latestConversation?.messages?.length) {
+            setConversation(latestConversation.messages.slice(-MAX_PERSISTED_MESSAGES));
+          }
+        });
+        return;
+      }
+      const validConversation = readGuestAIConversation().filter(
+        (item) =>
+          item &&
+          (item.role === "user" || item.role === "assistant") &&
+          typeof item.content === "string"
+      );
+      if (validConversation.length > 0) {
+        setConversation(validConversation.slice(-MAX_PERSISTED_MESSAGES));
+      }
+    });
   }, []);
 
   useEffect(() => {
-    if (conversation.length === 0) {
-      deleteCookie(AI_CHAT_COOKIE_NAME);
+    if (isAuthenticated) {
       return;
     }
-
-    writeJsonCookie(AI_CHAT_COOKIE_NAME, conversation.slice(-MAX_PERSISTED_MESSAGES));
-  }, [conversation]);
+    writeGuestAIConversation(conversation.slice(-MAX_PERSISTED_MESSAGES));
+  }, [conversation, isAuthenticated]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

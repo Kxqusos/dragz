@@ -1,5 +1,6 @@
 import json
 import re
+from datetime import UTC, datetime, timedelta
 from typing import Awaitable, Callable
 
 from redis.asyncio import Redis
@@ -85,6 +86,44 @@ def geocode_cache_key(address: str) -> str:
 
 def geocode_provider_cooldown_key(provider: str) -> str:
     return f"{CACHE_VERSION}:geocode:provider-cooldown:{provider}"
+
+
+def geocode_provider_daily_quota_key(provider: str, date_key: str) -> str:
+    return f"{CACHE_VERSION}:geocode:provider-daily-quota:{provider}:{date_key}"
+
+
+def _seconds_until_end_of_day(now: datetime) -> int:
+    tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return max(1, int((tomorrow - now).total_seconds()))
+
+
+async def try_acquire_geocode_provider_quota(
+    cache: Redis | None,
+    provider: str,
+    *,
+    daily_limit: int,
+    safety_buffer: int,
+    now: datetime | None = None,
+) -> bool:
+    if cache is None:
+        return True
+
+    effective_limit = max(0, daily_limit - safety_buffer)
+    if effective_limit == 0:
+        return False
+
+    current_time = now or datetime.now(UTC)
+    date_key = current_time.strftime("%Y%m%d")
+    key = geocode_provider_daily_quota_key(provider, date_key)
+
+    try:
+        next_value = await cache.incr(key)
+        if next_value == 1:
+            await cache.expire(key, _seconds_until_end_of_day(current_time))
+    except Exception:
+        return True
+
+    return next_value <= effective_limit
 
 
 async def get_cached_geocode_record(cache: Redis | None, address: str) -> dict | None:

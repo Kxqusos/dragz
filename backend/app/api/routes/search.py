@@ -3,12 +3,15 @@ from pydantic import AliasChoices, BaseModel, Field
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_optional_current_user
 from app.cache.redis import create_redis_client
 from app.core.config import Settings
 from app.db.dependencies import get_db_session
+from app.db.models import User
 from app.schemas import SearchResponse
 from app.services.cache import cached_resolve_offers, cached_suggest_drugs
 from app.services.geocoding import geocode_address
+from app.services.history import add_search_history
 from app.services.openrouter import suggest_drugs
 from app.services.offer_enrichment import enrich_offers_with_geodata
 from app.services.ref003.client import resolve_offers
@@ -40,6 +43,7 @@ class SearchRequest(BaseModel):
 async def search(
     payload: SearchRequest,
     db_session: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_optional_current_user),
 ) -> SearchResponse:
     query = payload.query.strip()
     if not query:
@@ -96,6 +100,13 @@ async def search(
     if search_analysis.canonical_query and search_analysis.canonical_query != query:
         result = result.model_copy(
             update={"warnings": [*result.warnings, f"normalized-query:{search_analysis.canonical_query}"]}
+        )
+    if current_user is not None:
+        await add_search_history(
+            db_session,
+            user_id=current_user.id,
+            query=query,
+            metadata={"warnings": result.warnings, "offers": len(result.offers)},
         )
     logger.info("search_response mode=%s query=%r offers=%d warnings=%s", result.mode, query, len(result.offers), result.warnings)
     return result

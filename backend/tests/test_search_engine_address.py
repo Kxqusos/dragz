@@ -21,3 +21,30 @@ def test_normalize_address_for_matching_builds_stable_matching_key():
     )
 
     assert normalized == "ростов на дону чехова 72"
+
+
+def test_build_geocode_queries_preserves_feminine_ordinal_street_names():
+    queries = build_geocode_queries(
+        "ул.2-я Краснодарская,145Д",
+        default_city="Ростов-на-Дону",
+    )
+
+    assert queries[0] == "Ростов-на-Дону, улица 2-я Краснодарская, 145д"
+
+
+def test_normalize_address_for_matching_strips_landmarks_outside_parentheses():
+    normalized = normalize_address_for_matching(
+        "пр.Нагибина,35 ост.Школа напротив Горизонт",
+        default_city="Ростов-на-Дону",
+    )
+
+    assert normalized == "ростов на дону нагибина 35"
+
+
+def test_normalize_address_for_matching_keeps_house_fraction_and_drops_square_landmarks():
+    normalized = normalize_address_for_matching(
+        "ул.Киргизская,43/26 пл.Чкалова",
+        default_city="Ростов-на-Дону",
+    )
+
+    assert normalized == "ростов на дону киргизская 43/26"

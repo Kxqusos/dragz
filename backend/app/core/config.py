@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/tabletki"
     redis_url: str = "redis://localhost:6379/0"
     geoapify_api_key: str = ""
+    yandex_geocoder_api_key: str = ""
     openrouter_api_key: str = ""
     openrouter_model: str = ""
     openrouter_http_referer: str = "http://127.0.0.1:3000"
@@ -31,6 +32,36 @@ class Settings(BaseSettings):
     geocode_refresh_batch_size: int = 500
     geocode_refresh_loop_interval_seconds: int = 900
     geocode_provider_cooldown_seconds: int = 600
+    geocode_provider_daily_request_limit: int = 1000
+    geocode_provider_daily_safety_buffer: int = 10
+    jwt_secret: str = "change-me-jwt-secret-change-me-jwt-secret"
+    jwt_algorithm: str = "HS256"
+    auth_access_token_ttl_minutes: int = 15
+    auth_refresh_token_ttl_days: int = 30
+    auth_cookie_secure: bool = False
+    auth_cookie_domain: str = ""
+    auth_bootstrap_admin_emails: str = ""
+    auth_code_ttl_minutes: int = 15
+    auth_code_resend_cooldown_seconds: int = 60
+    auth_verification_code_resend_cooldown_seconds: int = 60
+    auth_password_reset_code_cooldown_seconds: int = 300
+    auth_code_max_attempts: int = 5
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = "noreply@example.com"
+    smtp_from_name: str = "tabletki.ru"
+    smtp_use_tls: bool = True
+    smtp_use_ssl: bool = False
+    debug_hash_salt: str = "change-me-debug-salt-change-me-debug-salt"
+    debug_retention_days: int = 30
+    history_retention_days: int = 180
+    site_name: str = "Драгз.рф"
+    site_support_email: str = "support@example.com"
+    site_support_url: str = ""
+    feature_registration_enabled: bool = True
+    feature_ai_consult_enabled: bool = True
 
     def allowed_frontend_origins(self) -> list[str]:
         origins = {self.frontend_origin}
@@ -40,3 +71,10 @@ class Settings(BaseSettings):
         elif parsed.hostname == "localhost":
             origins.add(f"{parsed.scheme}://127.0.0.1:{parsed.port}")
         return sorted(origins)
+
+    def bootstrap_admin_emails(self) -> set[str]:
+        return {
+            email.strip().lower()
+            for email in self.auth_bootstrap_admin_emails.split(",")
+            if email.strip()
+        }

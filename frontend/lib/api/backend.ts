@@ -48,6 +48,7 @@ export async function searchBackend(payload: {
   logUiEvent("search_backend_request", payload);
   const response = await fetch(`${getBackendUrl()}/api/search`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json"
     },
@@ -96,6 +97,7 @@ export async function buildRoute(payload: {
   });
   const response = await fetch(`${getBackendUrl()}/api/route`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json"
     },

@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import PharmacyCoordinate
 from app.services.cache import normalize_geocode_cache_address
+from app.services.search_engine.address import normalize_address_for_matching
 
 
 def normalize_pharmacy_coordinate_address(address: str) -> str:
@@ -16,12 +17,22 @@ async def get_pharmacy_coordinate_record(
     address: str,
 ) -> PharmacyCoordinate | None:
     normalized_address = normalize_pharmacy_coordinate_address(address)
-    result = await session.execute(
+    exact_result = await session.execute(
         select(PharmacyCoordinate).where(
             PharmacyCoordinate.normalized_address == normalized_address
         )
     )
-    return result.scalar_one_or_none()
+    exact_record = exact_result.scalar_one_or_none()
+    if exact_record is not None:
+        return exact_record
+
+    matching_key = normalize_address_for_matching(address, default_city="Ростов-на-Дону")
+    matching_result = await session.execute(
+        select(PharmacyCoordinate).where(
+            PharmacyCoordinate.matching_key == matching_key
+        )
+    )
+    return matching_result.scalar_one_or_none()
 
 
 async def get_persisted_coordinates(
@@ -45,6 +56,9 @@ async def upsert_pharmacy_coordinate_record(
     lon: float | None = None,
     provider: str | None = None,
     query: str | None = None,
+    matching_key: str | None = None,
+    match_strategy: str | None = None,
+    confidence_tier: str | None = None,
     updated_at: datetime | None = None,
 ) -> PharmacyCoordinate:
     normalized_address = normalize_pharmacy_coordinate_address(address)
@@ -59,6 +73,9 @@ async def upsert_pharmacy_coordinate_record(
             lon=lon,
             provider=provider,
             query=query,
+            matching_key=matching_key,
+            match_strategy=match_strategy,
+            confidence_tier=confidence_tier,
             updated_at=updated_at or datetime.now(UTC),
         )
         session.add(record)
@@ -69,6 +86,9 @@ async def upsert_pharmacy_coordinate_record(
         record.lon = lon
         record.provider = provider
         record.query = query
+        record.matching_key = matching_key
+        record.match_strategy = match_strategy
+        record.confidence_tier = confidence_tier
         record.updated_at = updated_at or datetime.now(UTC)
 
     await session.commit()
