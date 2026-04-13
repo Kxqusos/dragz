@@ -7,11 +7,9 @@ export default function AIConsultPage() {
       <div className={styles.glow} />
 
       <section className={styles.hero}>
-        <p className={styles.eyebrow}>AI OTC-консультация</p>
         <h1 className={styles.title}>ИИ-консультант по безрецептурным препаратам.</h1>
         <p className={styles.subtitle}>
-          Опишите симптом, получите безопасную OTC-подсказку и при необходимости перейдите в
-          поиск аптек по рекомендованному препарату.
+          ИИ отвечает только по симптомам и безрецептурным препаратам. При тревожных симптомах он рекомендует обратиться к врачу.
         </p>
       </section>
 

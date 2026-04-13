@@ -90,10 +90,6 @@ export function AIConsultExperience() {
 
   return (
     <section className={styles.shell} data-testid="ai-chat-shell" data-chat-layout="wide">
-      <p className={styles.disclaimer}>
-        ИИ отвечает только по симптомам и безрецептурным препаратам. При тревожных симптомах он
-        рекомендует обратиться к врачу.
-      </p>
 
       <div className={styles.contentGrid}>
         <div className={styles.historyFrame}>
