@@ -1,11 +1,18 @@
+# syntax=docker/dockerfile:1.7
+
 FROM node:20-alpine
 
 WORKDIR /app
 
 ARG NEXT_PUBLIC_BACKEND_URL=
 
+ENV NPM_CONFIG_FETCH_RETRIES=5
+ENV NPM_CONFIG_FETCH_RETRY_FACTOR=2
+ENV NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=10000
+ENV NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000
+
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm npm ci --prefer-offline --no-audit --no-fund
 
 COPY frontend /app
 

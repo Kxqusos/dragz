@@ -1,5 +1,5 @@
 import type { AIConversationPayload } from "@/lib/ai-chat/types";
-import type { CartItem } from "@/lib/mvp/types";
+import type { CartItem } from "@/features/search/model/types";
 import type { AuthUser, DebugEvent, GuestMergePayload, SearchHistoryEntry, SiteSettingItem } from "@/lib/auth/types";
 import { getBackendUrl } from "@/lib/api/base-url";
 

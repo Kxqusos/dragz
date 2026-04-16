@@ -1,5 +1,5 @@
 import styles from "../page.module.css";
-import { AIConsultExperience } from "@/components/ai/AIConsultExperience";
+import { AIConsultExperience } from "@/features/ai/components/AIConsultExperience";
 
 export default function AIConsultPage() {
   return (

@@ -1,6 +1,6 @@
-import type { CartItem } from "@/lib/mvp/types";
-import { countItemsForPharmacy } from "@/lib/mvp/cart";
-import { getCartItemKey } from "@/lib/mvp/types";
+import type { CartItem } from "@/features/search/model/types";
+import { countItemsForPharmacy } from "@/features/search/lib/cart";
+import { getCartItemKey } from "@/features/search/model/types";
 import styles from "./search-experience.module.css";
 
 type CartPanelProps = {

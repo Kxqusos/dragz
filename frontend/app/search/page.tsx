@@ -1,4 +1,4 @@
-import { SearchPageView } from "@/components/search/SearchPageView";
+import { SearchPageView } from "@/features/search/components/SearchPageView";
 
 export default async function SearchPage({
   searchParams

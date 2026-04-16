@@ -1,5 +1,5 @@
 import styles from "@/app/page.module.css";
-import { SearchExperience } from "@/components/mvp/SearchExperience";
+import { SearchExperience } from "@/features/search/components/SearchExperience";
 
 export function SearchPageView({
   initialQuery = ""

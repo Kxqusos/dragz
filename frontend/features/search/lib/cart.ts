@@ -1,5 +1,5 @@
-import type { CartItem, PharmacyOffer } from "@/lib/mvp/types";
-import { getPharmacyGroupKey } from "@/lib/mvp/types";
+import type { CartItem, PharmacyOffer } from "@/features/search/model/types";
+import { getPharmacyGroupKey } from "@/features/search/model/types";
 
 export function buildRoutePharmaciesFromCart(items: CartItem[]): PharmacyOffer[] {
   const uniquePharmacies = new Map<string, PharmacyOffer>();

@@ -1,4 +1,4 @@
-import type { RouteStop } from "../../lib/mvp/types";
+import type { RouteStop } from "../model/types";
 
 function isOriginStop(stop: RouteStop): boolean {
   return stop.pharmacyId === "origin";

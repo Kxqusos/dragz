@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import type { PharmacyOffer, RoutePreview } from "@/lib/mvp/types";
+import type { PharmacyOffer, RoutePreview } from "@/features/search/model/types";
 import styles from "./search-experience.module.css";
-import { getRouteMapMarkerLabel } from "./route-stop-presentation";
+import { getRouteMapMarkerLabel } from "../lib/route-stop-presentation";
 import {
   buildRouteArrowFeature,
   buildRouteLineFeature,
-} from "./route-map-presentation";
+} from "../lib/route-map-presentation";
 
 type HoverCard = {
   title: string;

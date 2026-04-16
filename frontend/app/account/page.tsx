@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { getCurrentUser, loadAIHistory, loadCart, loadSearchHistory } from "@/lib/auth/client";
 import type { AuthUser, SearchHistoryEntry } from "@/lib/auth/types";
 import type { AIConversationPayload } from "@/lib/ai-chat/types";
-import type { CartItem } from "@/lib/mvp/types";
+import type { CartItem } from "@/features/search/model/types";
 import styles from "../auth.module.css";
 
 export default function AccountPage() {

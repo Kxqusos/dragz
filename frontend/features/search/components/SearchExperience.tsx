@@ -1,17 +1,17 @@
 "use client";
 
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
-import type { CartItem, PharmacyOffer, RoutePreview } from "@/lib/mvp/types";
-import { getCartItemKey, getUniquePharmacyCount, hasRouteableSelection } from "@/lib/mvp/types";
+import type { CartItem, PharmacyOffer, RoutePreview } from "@/features/search/model/types";
+import { getCartItemKey, getUniquePharmacyCount, hasRouteableSelection } from "@/features/search/model/types";
 import { buildRoute, searchBackend } from "@/lib/api/backend";
 import { getCurrentUser, loadCart, saveCart } from "@/lib/auth/client";
 import { appendGuestSearchHistory, readGuestCart, writeGuestCart } from "@/lib/auth/guest-state";
 import { logUiEvent } from "@/lib/client/logger";
-import { buildRoutePharmaciesFromCart } from "@/lib/mvp/cart";
-import { CartPanel } from "@/components/mvp/CartPanel";
-import { PharmacyResults } from "@/components/mvp/PharmacyResults";
-import { RouteMap } from "@/components/mvp/RouteMap";
-import { RouteSummary } from "@/components/mvp/RouteSummary";
+import { buildRoutePharmaciesFromCart } from "@/features/search/lib/cart";
+import { CartPanel } from "./CartPanel";
+import { PharmacyResults } from "./PharmacyResults";
+import { RouteMap } from "./RouteMap";
+import { RouteSummary } from "./RouteSummary";
 import styles from "./search-experience.module.css";
 
 type OfferSort = "distance" | "price";

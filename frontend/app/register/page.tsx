@@ -19,12 +19,12 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState("");
+  const passwordRequirementsMismatch = password.length > 0 && !hasRequiredPasswordComplexity(password);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-    if (!hasRequiredPasswordComplexity(password)) {
-      setError(PASSWORD_REQUIREMENTS_MESSAGE);
+    if (passwordRequirementsMismatch) {
       return;
     }
     if (password !== confirmPassword) {
@@ -58,9 +58,7 @@ export default function RegisterPage() {
               required
             />
           </label>
-          <p className={styles.meta}>
-            {PASSWORD_REQUIREMENTS_MESSAGE}
-          </p>
+          {passwordRequirementsMismatch ? <p className={styles.error}>{PASSWORD_REQUIREMENTS_MESSAGE}</p> : null}
           <label className={styles.label}>
             Повторите пароль
             <input

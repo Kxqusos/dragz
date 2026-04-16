@@ -1,4 +1,4 @@
-import type { PharmacyOffer } from "@/lib/mvp/types";
+import type { PharmacyOffer } from "@/features/search/model/types";
 
 export const DEFAULT_VISIBLE_OFFERS = 5;
 

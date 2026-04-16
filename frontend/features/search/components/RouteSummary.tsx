@@ -1,9 +1,9 @@
-import type { RoutePreview } from "@/lib/mvp/types";
+import type { RoutePreview } from "@/features/search/model/types";
 import styles from "./search-experience.module.css";
 import {
   getRouteDirectionStopLabel,
   getRouteStopIndexLabel
-} from "./route-stop-presentation";
+} from "../lib/route-stop-presentation";
 
 type RouteSummaryProps = {
   route: RoutePreview;

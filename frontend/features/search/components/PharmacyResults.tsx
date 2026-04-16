@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import type { PharmacyOffer } from "@/lib/mvp/types";
-import { getCartItemKey } from "@/lib/mvp/types";
+import type { PharmacyOffer } from "@/features/search/model/types";
+import { getCartItemKey } from "@/features/search/model/types";
 import styles from "./search-experience.module.css";
 import {
   getVisibleOffers,
   shouldShowMoreOffers
-} from "./offer-list-presentation";
-import { formatDistanceKm } from "./offer-distance-format";
+} from "../lib/offer-list-presentation";
+import { formatDistanceKm } from "../lib/offer-distance-format";
 
 type PharmacyResultsProps = {
   offers: PharmacyOffer[];

@@ -1,5 +1,5 @@
 import type { AIConversationItem } from "@/lib/ai-chat/types";
-import type { CartItem } from "@/lib/mvp/types";
+import type { CartItem } from "@/features/search/model/types";
 import type { GuestMergePayload, SearchHistoryEntry } from "@/lib/auth/types";
 import { deleteCookie, readJsonCookie, writeJsonCookie } from "@/lib/client/cookies";
 

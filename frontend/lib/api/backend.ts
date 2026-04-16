@@ -1,4 +1,4 @@
-import type { PharmacyOffer, RoutePreview } from "@/lib/mvp/types";
+import type { PharmacyOffer, RoutePreview } from "@/features/search/model/types";
 import { logUiEvent } from "@/lib/client/logger";
 import { getBackendUrl } from "@/lib/api/base-url";
 

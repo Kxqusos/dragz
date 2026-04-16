@@ -1,5 +1,5 @@
 import type { AIConversationItem } from "@/lib/ai-chat/types";
-import type { CartItem } from "@/lib/mvp/types";
+import type { CartItem } from "@/features/search/model/types";
 
 export type AuthUser = {
   id: string;
